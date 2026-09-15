@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#285b50">
+<meta name="theme-color" content="#F8F9F7">
 <title>Scan AR</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
@@ -419,18 +419,56 @@ nav button.active{
 .restore-box.show{display:block}
 </style>
 
+
+<style id="v23-style">
+:root{
+  --bg:#f8f9f7;--card:#fff;--ink:#181a1b;--muted:#6b7073;--line:#e8eae7;
+  --accent:#245f52;--accentSoft:#eaf3ef;--good:#256b59;--warn:#9a6b1c;--bad:#a04942;
+}
+html{background:var(--bg)}
+body{background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:820px;padding:26px 24px 112px}
+h1{font-size:34px;line-height:1.05;font-weight:760;letter-spacing:-1.25px;margin:6px 0 4px}
+.build{font-size:11px;color:#8a8e90;margin:0 0 24px;letter-spacing:.08px}
+.sub{font-size:15px;line-height:1.45;color:var(--muted);margin:0 0 26px}
+.card{margin:0 0 28px;padding:0;border:0;background:transparent}
+.card + .card{border-top:0;padding-top:0}
+.section-title{font-size:20px;font-weight:740;letter-spacing:-.35px}
+.small{font-size:13px;line-height:1.45}
+button{border-radius:12px;font-weight:680;letter-spacing:-.1px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid rgba(36,95,82,.18);outline-offset:2px}
+.install-tip{position:relative;display:none;align-items:center;gap:12px;padding:12px 12px 12px 13px;margin:-4px 0 22px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.025)}
+.install-tip.show{display:flex}.install-tip-icon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--accentSoft);color:var(--accent);font-size:19px;font-weight:700;flex:0 0 auto}
+.install-tip-copy{min-width:0;flex:1}.install-tip-title{font-size:14px;font-weight:720;margin:0 0 1px}.install-tip .small{font-size:12px}
+.icon-button{width:34px;height:34px;min-height:34px;padding:0;border-radius:50%;background:transparent;color:#73787a;font-size:23px;font-weight:400}.icon-button:hover{background:#f1f2f0}
+.camera-bar{margin:0 0 10px;display:block}.scan-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.eyebrow{font-size:11px;font-weight:750;letter-spacing:.11em;color:#818689}.privacy-note{font-size:12px;color:#7a7f81;display:inline-flex;align-items:center;gap:6px}.privacy-dot{width:7px;height:7px;border-radius:50%;background:#7d9d91}
+.camera-toggle-hidden{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.camera-off{min-height:340px;border:1px solid var(--line);border-radius:24px;background:#fff;padding:36px;box-shadow:0 10px 30px rgba(17,24,22,.035)}
+.camera-off-inner{max-width:420px;margin:auto;display:flex;flex-direction:column;align-items:center}.camera-icon{width:58px;height:58px;border-radius:18px;background:var(--accentSoft);display:grid;place-items:center;margin-bottom:18px}.camera-icon svg{width:29px;height:29px;fill:var(--accent)}
+.camera-off-title{font-size:23px;font-weight:760;letter-spacing:-.5px;color:var(--ink);margin-bottom:7px}.camera-off-copy{font-size:14px;line-height:1.5;color:var(--muted);max-width:390px;margin-bottom:21px}.primary-large{min-height:48px;padding:0 19px;background:var(--accent);box-shadow:0 4px 12px rgba(36,95,82,.16)}.button-icon{font-size:13px;margin-right:5px}
+.reader-shell,#reader{border-radius:24px}#reader{min-height:340px}.scan-help{font-size:12px;margin:10px 2px 0;color:#808587}
+.queue{display:flex;gap:0;margin:16px 0 0;padding:14px 0 0;border-top:1px solid var(--line)}.qstat{padding:0 22px 0 0;margin-right:22px;border-right:1px solid var(--line);min-width:0}.qstat:last-child{border-right:0;margin-right:0;padding-right:0}.qstat b{font-size:21px;font-weight:760;line-height:1.1}.qstat span{font-size:11px;color:#7b8082;white-space:nowrap}
+#scanPage>.card:nth-of-type(2){max-width:620px;margin-top:24px}#scanPage>.card:nth-of-type(2) .row{gap:9px}#isbnInput{height:48px;border:1px solid #dfe2de;border-radius:13px;padding:0 15px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.02)}#addIsbnBtn{height:48px;padding:0 18px}
+#scanPage>.card:nth-of-type(3){margin-top:32px;padding-top:25px;border-top:1px solid var(--line)}
+#latestList .empty{position:relative;padding:46px 10px 34px}.empty{color:#828789;font-size:14px}.empty:before{content:'▤';display:block;width:42px;height:42px;line-height:42px;border-radius:13px;background:#eff2ef;color:#7b8d86;margin:0 auto 10px;font-size:19px}
+nav{left:50%;right:auto;transform:translateX(-50%);bottom:16px;width:min(430px,calc(100% - 28px));padding:7px 8px calc(7px + env(safe-area-inset-bottom));border:1px solid rgba(216,220,216,.9);border-radius:20px;background:rgba(255,255,255,.94);box-shadow:0 10px 32px rgba(16,24,20,.10);gap:2px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#7b8082;font-size:10.5px;font-weight:650;background:transparent}nav button svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}nav button.active{color:var(--accent);background:var(--accentSoft)}
+.segment{background:#f0f2ef;border-radius:12px}.book-inner{background:transparent}.profile{border-color:var(--line)}
+.protection-box,.recovery-code,.backup-note{border-color:var(--line)}
+@media(max-width:600px){main{padding:18px 16px 108px}h1{font-size:31px}.sub{margin-bottom:20px}.camera-off{min-height:305px;padding:30px 22px}.camera-off-title{font-size:21px}.scan-heading{align-items:flex-start}.privacy-note{font-size:11px}.queue{overflow-x:auto}.qstat{padding-right:15px;margin-right:15px}.qstat span{white-space:nowrap}nav{bottom:10px;width:calc(100% - 20px)}}
+@media(max-width:380px){.privacy-note{display:none}.camera-off{min-height:285px}.queue .qstat{min-width:auto}.qstat b{font-size:19px}}
+</style>
 </head>
 <body>
 <main>
 <h1>Scan AR</h1>
-<div class="build"><span>v2.2</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+<div class="build"><span>v2.3</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
 
 <div id="installTip" class="install-tip">
-  <div class="install-tip-title">Use Scan AR like an app</div>
-  <div class="small">On iPhone: tap Share, then <b>Add to Home Screen</b>. It will open in its own app window.</div>
-  <div class="install-tip-actions">
-    <button id="dismissInstallTip" class="secondary">Got it</button>
-  </div>
+  <div class="install-tip-icon" aria-hidden="true">↗</div>
+  <div class="install-tip-copy"><div class="install-tip-title">Add Scan AR to your Home Screen</div>
+  <div class="small">On iPhone, tap Share → Add to Home Screen.</div></div>
+  <button id="dismissInstallTip" class="icon-button" aria-label="Dismiss">×</button>
 </div>
 
 <div class="sub">Scan books, save your library, and see what fits each child.</div>
@@ -448,19 +486,26 @@ nav button.active{
 
   <div class="card">
     <div class="camera-bar">
-      <label class="switch"><input id="cameraToggle" type="checkbox"><span id="cameraToggleText">Camera off</span></label>
-      <span class="small">Only runs on this Scan page.</span>
+      <div class="scan-heading"><span class="eyebrow">SCAN</span><span class="privacy-note"><span class="privacy-dot"></span>Camera runs only while scanning</span></div>
+      <label class="camera-toggle-hidden"><input id="cameraToggle" type="checkbox"><span id="cameraToggleText">Camera off</span></label>
     </div>
-    <div id="cameraOff" class="camera-off"><div><b>Camera is off</b><br><span class="small">Turn it on when you are ready to rapid-scan a stack of books.</span></div></div>
+    <div id="cameraOff" class="camera-off">
+      <div class="camera-off-inner">
+        <div class="camera-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8.5 5.5 10 3h4l1.5 2.5H19a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3h3.5Zm3.5 3a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"/></svg></div>
+        <div class="camera-off-title">Ready to scan?</div>
+        <div class="camera-off-copy">Point your camera at the ISBN barcode. You can keep moving through a whole stack while lookups run.</div>
+        <button id="startScanBtn" class="primary-large"><span class="button-icon">▣</span> Start scanning</button>
+      </div>
+    </div>
     <div id="readerShell" class="reader-shell" style="display:none">
       <div id="reader"></div>
       <div class="scan-guide"><div class="scan-box"></div><div class="scan-label">Move closer — fill most of this area</div></div>
       <div id="scanSuccess" class="scan-success" aria-live="polite"><div class="success-card"><div class="check">✓</div><div id="successText">Captured</div></div></div>
     </div>
-    <div class="scan-help">Move closer until the barcode fills most of the guide. Scanning continues while lookups run in the background.</div>
+    <div class="scan-help">Fill most of the guide with the barcode. Each capture is saved immediately.</div>
     <div id="scanOutcome" class="outcome" aria-live="polite"></div>
     <div class="queue">
-      <div class="qstat"><b id="qCaptured">0</b><span>captured this session</span></div>
+      <div class="qstat"><b id="qCaptured">0</b><span>scanned</span></div>
       <div class="qstat"><b id="qPending">0</b><span>looking up</span></div>
       <div class="qstat"><b id="qFound">0</b><span>AR found</span></div>
       <div class="qstat"><b id="qNoAr">0</b><span>no AR quiz</span></div>
@@ -468,7 +513,7 @@ nav button.active{
   </div>
 
   <div class="card">
-    <div class="row"><div class="grow"><input id="isbnInput" inputmode="numeric" autocomplete="off" placeholder="Or enter ISBN-10 / ISBN-13"></div><button id="addIsbnBtn">Add</button></div>
+    <div class="row"><div class="grow"><input id="isbnInput" inputmode="numeric" autocomplete="off" placeholder="Enter ISBN manually"></div><button id="addIsbnBtn">Add</button></div>
   </div>
 
   <div class="card"><div class="row between"><div class="section-title">Latest scans</div><span id="latestCount" class="small"></span></div><div id="latestList"></div></div>
@@ -587,11 +632,11 @@ nav button.active{
 </section>
 </main>
 
-<nav>
-  <button class="active" data-page="scanPage">Scan</button>
-  <button data-page="libraryPage">Library</button>
-  <button data-page="kidsPage">Kids</button>
-  <button data-page="settingsPage">Settings</button>
+<nav aria-label="Main navigation">
+  <button class="active" data-page="scanPage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 9v6M10 9v6M14 9v6M17 9v6"/></svg><span>Scan</span></button>
+  <button data-page="libraryPage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10a2 2 0 0 1 2 2V20H7a2 2 0 0 1-2-2V4.5Zm12 2h2v11.5a2 2 0 0 1-2 2M8.5 8h5M8.5 11h5"/></svg><span>Library</span></button>
+  <button data-page="kidsPage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm6.5-1a2.75 2.75 0 1 0 0-5.5M3.5 20v-2.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V20M15 13.5h1a4.5 4.5 0 0 1 4.5 4.5V20"/></svg><span>Kids</span></button>
+  <button data-page="settingsPage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0-5 1.2 2.2 2.5.6 2-1.4 2 2-1.4 2 .6 2.5 2.2 1.2-1.2 2.2-.6 2.5 1.4 2-2 2-2-1.4-2.5.6L12 20.5l-1.2-2.2-2.5-.6-2 1.4-2-2 1.4-2-.6-2.5L2.5 12l2.2-1.2.6-2.5-1.4-2 2-2 2 1.4 2.5-.6L12 3.5Z"/></svg><span>Settings</span></button>
 </nav>
 
 <div id="kidModal" class="modal"><div class="sheet">
@@ -907,6 +952,11 @@ async function stopCamera(){
   document.querySelectorAll('video').forEach(v=>{const s=v.srcObject;if(s?.getTracks)s.getTracks().forEach(t=>t.stop());v.srcObject=null});
   $('readerShell').style.display='none';$('cameraOff').style.display='flex';
 }
+$('startScanBtn').addEventListener('click',async()=>{
+  $('cameraToggle').checked=true;
+  $('cameraToggle').dispatchEvent(new Event('change'));
+});
+
 $('cameraToggle').addEventListener('change',async()=>{
   if($('cameraToggle').checked&&currentPage==='scanPage'){
     sessionCapturedCount=0;

@@ -1,3 +1,10 @@
+# Scan AR v2.3
+
+**Build date:** September 15, 2026
+
+## UI polish release
+This release modernizes the interface without changing the storage or lookup model.
+
 # Scan AR v2.2
 
 **Build date:** September 15, 2026

@@ -1,8 +1,14 @@
 {
-  "version": "v2.2",
+  "version": "v2.3",
   "build_date": "2026-09-15",
-  "label": "v2.2 \u2022 September 15, 2026",
+  "label": "v2.3 \u2022 September 15, 2026",
   "changes": [
+    "UI polish: modern near-white palette replaces beige background",
+    "New icon-based floating mobile navigation",
+    "Redesigned camera-off state with one clear Start scanning action",
+    "Cleaner scan statistics, spacing, hierarchy, and manual ISBN entry",
+    "Compact Home Screen install banner",
+    "No changes to library storage, kid data, backups, or AR lookup behavior",
     "Permanent user-data storage namespace independent of app version",
     "Automatic online backup of books, kids, ranges, and kid-specific statuses",
     "Private recovery code generated on-device",
