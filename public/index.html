@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#176c58">
+<title>Scan AR</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{--bg:#f5f4ef;--card:#fff;--ink:#202124;--muted:#6d6d72;--accent:#176c58;--soft:#e8f3ef;--line:#deddd7;--warn:#8a6216;--danger:#9b3831}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+main{max-width:720px;margin:auto;padding:14px 14px 92px}h1{font-size:32px;letter-spacing:-1px;margin:8px 0 0}.sub{color:var(--muted);margin:3px 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:19px;padding:15px;margin:11px 0;box-shadow:0 2px 10px rgba(0,0,0,.025)}
+#reader{width:100%;overflow:hidden;border-radius:16px;background:#111;min-height:80px}#reader video{border-radius:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.between{justify-content:space-between}.grow{flex:1;min-width:0}
+button{border:0;border-radius:12px;padding:12px 14px;min-height:44px;font-size:15px;font-weight:700;background:var(--accent);color:#fff;cursor:pointer}
+button.secondary{background:var(--soft);color:var(--accent)}button.ghost{background:#efefeb;color:var(--ink)}button.danger{background:#f8eceb;color:var(--danger)}button:disabled{opacity:.45}
+input,select{border:1px solid var(--line);border-radius:12px;padding:12px;font-size:16px;background:#fff;color:var(--ink);min-height:44px}input{width:100%}
+.small{font-size:13px;color:var(--muted);line-height:1.4}.tiny{font-size:11px;color:var(--muted)}
+.tabs{display:flex;gap:5px;background:#e9e8e3;border-radius:14px;padding:4px;margin:8px 0 12px;overflow:auto}.tabs button{background:transparent;color:#58585d;white-space:nowrap;min-height:38px;padding:8px 12px}.tabs button.active{background:#fff;color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.page{display:none}.page.active{display:block}.pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#efefeb;font-size:12px;margin:2px 3px 2px 0}.pill.good{background:#e7f4ee;color:#176c58}.pill.warn{background:#fff2d9;color:var(--warn)}.pill.bad{background:#f8eceb;color:var(--danger)}
+.queue{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.qstat{background:#f2f1ec;border-radius:13px;padding:9px}.qstat b{display:block;font-size:21px}.qstat span{font-size:11px;color:var(--muted)}
+.book{position:relative;padding:12px 0;border-bottom:1px solid #eee;touch-action:pan-y}.book:last-child{border:0}.booktitle{font-weight:750;font-size:17px;line-height:1.25}.bookmeta{font-size:13px;color:var(--muted);margin-top:3px}.bookactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.bookactions button{min-height:34px;padding:6px 9px;font-size:12px}
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}.filters .full{grid-column:1/-1}
+.profile{padding:12px 0;border-bottom:1px solid #eee}.profile:last-child{border:0}.rangeInputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rangeInputs label{font-size:12px;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:24px 8px}.okbox{background:#eaf5f0;border:1px solid #c7e2d6;color:#1e654f;padding:10px 12px;border-radius:12px}.warnbox{background:#fff7dc;border:1px solid #eed88e;color:#6d5611;padding:10px 12px;border-radius:12px}
+nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:7px 8px calc(7px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:3px;z-index:5}nav button{background:transparent;color:#666;min-height:44px;padding:7px 12px;font-size:12px}nav button.active{background:var(--soft);color:var(--accent)}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:20;align-items:flex-end;justify-content:center}.modal.open{display:flex}.sheet{background:#fff;width:min(720px,100%);max-height:90%;overflow:auto;border-radius:22px 22px 0 0;padding:18px 15px calc(22px + env(safe-area-inset-bottom))}
+@media(min-width:620px){.filters{grid-template-columns:2fr 1fr 1fr}.filters .full{grid-column:auto}.queue{max-width:420px}}
+</style>
+
+<style id="v13-style">
+  :root{
+    --scanar-ink:#202124;
+    --scanar-accent:#245c4f;
+    --scanar-accent-soft:#e8f0ed;
+    --scanar-warm:#f4efe6;
+  }
+  body{
+    background:
+      radial-gradient(circle at top right, rgba(36,92,79,.08), transparent 28%),
+      linear-gradient(180deg, #faf9f6 0%, #f4f1eb 100%) !important;
+  }
+  .card{
+    border-radius:20px !important;
+    border:1px solid rgba(32,33,36,.10) !important;
+  }
+  button, .primary{
+    border-radius:14px !important;
+  }
+  #buildBadge{
+    box-shadow:0 1px 0 rgba(255,255,255,.25) inset;
+  }
+</style>
+
+</head>
+<body>
+<main>
+<h1>Scan AR</h1>
+<div id="buildBadge" style="
+  display:inline-flex;align-items:center;gap:8px;
+  margin:8px 0 14px;padding:7px 10px;border-radius:999px;
+  background:#202124;color:#fff;font-size:12px;font-weight:700;
+  letter-spacing:.2px">
+  <span>v1.3</span>
+  <span style="opacity:.6">•</span>
+  <span>September 15, 2026</span>
+</div>
+<div class="sub">Rapid-scan your household books, then see what fits each child now.</div>
+
+<section id="scanPage" class="page active">
+  <div class="card">
+    <div id="reader"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="scanBtn">Start rapid scan</button><button id="stopBtn" class="secondary">Stop</button>
+    </div>
+    <div id="camStatus" class="small" style="margin-top:7px">Each ISBN is captured instantly; AR lookups continue in the background.</div>
+    <div class="queue">
+      <div class="qstat"><b id="qCaptured">0</b><span>captured</span></div><div class="qstat"><b id="qPending">0</b><span>looking up</span></div><div class="qstat"><b id="qFound">0</b><span>found</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row"><div class="grow"><input id="isbnInput" inputmode="numeric" autocomplete="off" placeholder="ISBN-10 or ISBN-13"></div><button id="addIsbnBtn">Add</button></div>
+  </div>
+  <div class="card"><div class="row between"><b>Latest scans</b><span id="latestCount" class="small"></span></div><div id="latestList"></div></div>
+</section>
+
+<section id="libraryPage" class="page">
+  <div class="card">
+    <div class="filters">
+      <div class="full"><input id="librarySearch" placeholder="Search title or ISBN"></div>
+      <div><select id="libraryKid"><option value="">All household books</option></select></div>
+      <div><select id="libraryStatus"><option value="found">Found books</option><option value="all">All scans</option><option value="failed">Failed / no AR</option><option value="pending">Pending</option></select></div>
+    </div>
+    <div class="row" style="margin-top:8px"><select id="librarySort"><option value="recent">Recently scanned</option><option value="level">AR level</option><option value="points">AR points</option><option value="title">Title</option></select><span id="librarySummary" class="small"></span></div>
+  </div>
+  <div class="card"><div id="libraryList"></div></div>
+</section>
+
+<section id="kidsPage" class="page">
+  <div class="card">
+    <b>Add child</b>
+    <div class="row" style="margin-top:9px"><div class="grow"><input id="newKidName" placeholder="Name"></div><button id="addKidBtn">Add</button></div>
+  </div>
+  <div class="card"><div id="kidsList"></div></div>
+</section>
+
+<section id="settingsPage" class="page">
+  <div class="card"><b>Deployment check</b><div class="small">Tests the Railway server and Chromium.</div><div class="row" style="margin-top:10px"><button id="checkBtn" class="secondary">Check</button><span id="checkResult" class="small"></span></div></div>
+  <div class="card"><b>Local data</b><p class="small">The household library and child profiles are stored in this browser on this device.</p><div class="row"><button id="exportBtn" class="secondary">Export backup</button><button id="eraseBtn" class="danger">Erase local data</button></div></div>
+</section>
+</main>
+
+<nav><button class="active" data-page="scanPage">Scan</button><button data-page="libraryPage">Library</button><button data-page="kidsPage">Kids</button><button data-page="settingsPage">Settings</button></nav>
+
+<div id="kidModal" class="modal"><div class="sheet"><h2 id="kidModalTitle" style="margin-top:0"></h2><div id="kidModalBody"></div><div class="row" style="margin-top:14px"><button id="kidSaveBtn">Save</button><button id="kidCancelBtn" class="ghost">Cancel</button></div></div></div>
+
+<script>
+const KEY='scanar_v12';
+let data=loadData(); let scanner=null, scanning=false, activeLookups=0; const MAX_LOOKUPS=2; let recentSession=new Set(); let lastScan={isbn:'',time:0}; let editingKid=null;
+function loadData(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&d.version===2)return d}catch{}return{version:2,books:{},kids:[]}}
+function persist(){localStorage.setItem(KEY,JSON.stringify(data))}
+function clean(s){return String(s||'').replace(/[^0-9Xx]/g,'').toUpperCase()}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function now(){return new Date().toISOString()}
+
+function enqueue(raw,source='scan'){
+  const isbn=clean(raw); if(![10,13].includes(isbn.length))return false;
+  const existing=data.books[isbn];
+  if(existing){existing.lastScannedAt=now();existing.scanCount=(existing.scanCount||1)+1; if(existing.lookupStatus==='failed')existing.lookupStatus='queued'}
+  else data.books[isbn]={isbn,lookupStatus:'queued',title:null,atos:null,points:null,interestLevel:null,quizNumber:null,wordCount:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}};
+  recentSession.add(isbn);persist(); renderAll();pumpQueue();
+  if(navigator.vibrate)navigator.vibrate(40); return true;
+}
+function pumpQueue(){while(activeLookups<MAX_LOOKUPS){const book=Object.values(data.books).find(b=>b.lookupStatus==='queued');if(!book)break;lookupBook(book)}}
+async function lookupBook(book){activeLookups++;book.lookupStatus='pending';book.error=null;persist();renderAll();
+  try{const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn));const j=await r.json();if(!r.ok)throw new Error(j.error||'Lookup failed');Object.assign(book,{lookupStatus:'found',title:j.title||'AR book',atos:j.atos,points:j.points,interestLevel:j.interestLevel,quizNumber:j.quizNumber,wordCount:j.wordCount,error:null,lookedUpAt:now()})}
+  catch(e){book.lookupStatus='failed';book.error=e.message||'Lookup failed';book.lookedUpAt=now()}
+  finally{activeLookups--;persist();renderAll();pumpQueue()}}
+function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
+
+async function startScan(){if(scanning)return;camStatus.textContent='Starting camera…';try{if(typeof Html5Qrcode==='undefined')throw new Error();scanner=scanner||new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13]});scanning=true;scanBtn.disabled=true;await scanner.start({facingMode:'environment'},{fps:14,qrbox:{width:300,height:130},aspectRatio:1.7778},decoded=>{const isbn=clean(decoded);const t=Date.now();if(isbn.length===13&&(isbn.startsWith('978')||isbn.startsWith('979'))){if(lastScan.isbn===isbn&&t-lastScan.time<1800)return;lastScan={isbn,time:t};enqueue(isbn,'camera');camStatus.textContent='✓ '+isbn+' captured — keep scanning';}},()=>{});camStatus.textContent='Rapid scan active — keep moving from book to book.'}catch{scanning=false;scanBtn.disabled=false;camStatus.textContent='Camera could not start. Allow camera access or add ISBNs manually.'}}
+async function stopScan(){if(scanner&&scanning){try{await scanner.stop()}catch{}try{await scanner.clear()}catch{}}scanning=false;scanBtn.disabled=false;camStatus.textContent='Scanner stopped.'}
+
+function kidState(book,kidId){return book.kidState?.[kidId]||'available'}
+function fitsKid(book,kid){if(book.lookupStatus!=='found'||book.atos==null)return false;const n=Number(book.atos);return (kid.min==null||n>=Number(kid.min))&&(kid.max==null||n<=Number(kid.max))&&kidState(book,kid.id)==='available'}
+function setKidState(isbn,kidId,state){const b=data.books[isbn];if(!b)return;b.kidState=b.kidState||{};b.kidState[kidId]=state;persist();renderAll()}
+
+function bookRow(b,kid=null){let pills='';if(b.lookupStatus==='found'){pills+=`<span class="pill good">AR ${b.atos??'—'}</span><span class="pill">${b.points??'—'} pts</span>${b.interestLevel?`<span class="pill">${escapeHtml(b.interestLevel)}</span>`:''}`}else if(b.lookupStatus==='failed')pills+=`<span class="pill bad">Not found</span>`;else pills+=`<span class="pill warn">${b.lookupStatus==='pending'?'Looking up…':'Queued'}</span>`;
+  if(kid){const s=kidState(b,kid.id);pills+=`<span class="pill">${s==='available'?'Available for '+escapeHtml(kid.name):s==='read'?'Read':'Hidden'}</span>`}
+  const actions=b.lookupStatus==='failed'?`<button class="secondary retry" data-isbn="${b.isbn}">Retry</button>`:'';
+  const kidActions=kid&&b.lookupStatus==='found'?`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Read</button><button class="ghost kidhide" data-isbn="${b.isbn}" data-kid="${kid.id}">Hide</button><button class="ghost kidrestore" data-isbn="${b.isbn}" data-kid="${kid.id}">Restore</button>`:'';
+  return `<div class="book" data-isbn="${b.isbn}" ${kid?`data-kid="${kid.id}"`:''}><div class="booktitle">${escapeHtml(b.title||b.isbn)}</div><div class="bookmeta">${b.title?'ISBN '+b.isbn:''}${b.quizNumber?' · Quiz #'+escapeHtml(b.quizNumber):''}${b.wordCount?' · '+Number(b.wordCount).toLocaleString()+' words':''}</div><div>${pills}</div><div class="bookactions">${actions}${kidActions}</div></div>`}
+
+function renderScan(){const session=[...recentSession].map(i=>data.books[i]).filter(Boolean);qCaptured.textContent=session.length;qPending.textContent=session.filter(b=>['queued','pending'].includes(b.lookupStatus)).length;qFound.textContent=session.filter(b=>b.lookupStatus==='found').length;latestCount.textContent=session.length?session.length+' this session':'';latestList.innerHTML=session.length?session.slice().reverse().slice(0,12).map(b=>bookRow(b)).join(''):'<div class="empty">Start scanning a stack of books.</div>'}
+function populateKidSelect(){const v=libraryKid.value;libraryKid.innerHTML='<option value="">All household books</option>'+data.kids.map(k=>`<option value="${k.id}">${escapeHtml(k.name)} · ${k.min??'—'}–${k.max??'—'}</option>`).join('');if(data.kids.some(k=>k.id===v))libraryKid.value=v}
+function renderLibrary(){populateKidSelect();let list=Object.values(data.books);const q=librarySearch.value.trim().toLowerCase();if(q)list=list.filter(b=>(b.title||'').toLowerCase().includes(q)||b.isbn.includes(q));const status=libraryStatus.value;if(status==='found')list=list.filter(b=>b.lookupStatus==='found');if(status==='failed')list=list.filter(b=>b.lookupStatus==='failed');if(status==='pending')list=list.filter(b=>['queued','pending'].includes(b.lookupStatus));const kid=data.kids.find(k=>k.id===libraryKid.value)||null;if(kid)list=list.filter(b=>fitsKid(b,kid));const sort=librarySort.value;if(sort==='level')list.sort((a,b)=>(a.atos??999)-(b.atos??999));else if(sort==='points')list.sort((a,b)=>(b.points??-1)-(a.points??-1));else if(sort==='title')list.sort((a,b)=>(a.title||a.isbn).localeCompare(b.title||b.isbn));else list.sort((a,b)=>String(b.lastScannedAt).localeCompare(String(a.lastScannedAt)));const pts=list.reduce((s,b)=>s+(Number(b.points)||0),0);librarySummary.textContent=`${list.length} book${list.length===1?'':'s'}${kid?' · '+pts.toFixed(1).replace('.0','')+' AR pts':''}`;libraryList.innerHTML=list.length?list.map(b=>bookRow(b,kid)).join(''):'<div class="empty">No books match this view.</div>';bindBookActions()}
+function renderKids(){if(!data.kids.length){kidsList.innerHTML='<div class="empty">Add a child and set the current school AR range.</div>';return}kidsList.innerHTML=data.kids.map(k=>{const fit=Object.values(data.books).filter(b=>fitsKid(b,k));const pts=fit.reduce((s,b)=>s+(Number(b.points)||0),0);const read=Object.values(data.books).filter(b=>kidState(b,k.id)==='read').length;return `<div class="profile"><div class="row between"><div><b>${escapeHtml(k.name)}</b><div class="small">Current AR range: ${k.min??'—'}–${k.max??'—'} · ${fit.length} available · ${pts.toFixed(1).replace('.0','')} pts · ${read} read</div></div><button class="secondary editKid" data-id="${k.id}">Edit</button></div></div>`}).join('');document.querySelectorAll('.editKid').forEach(x=>x.addEventListener('click',()=>openKid(x.dataset.id)))}
+function renderAll(){renderScan();renderLibrary();renderKids()}
+
+function openKid(id){editingKid=data.kids.find(k=>k.id===id);if(!editingKid)return;kidModalTitle.textContent='Edit '+editingKid.name;kidModalBody.innerHTML=`<label class="small">Name</label><input id="editKidName" value="${escapeHtml(editingKid.name)}"><div class="rangeInputs" style="margin-top:10px"><div><label>Minimum AR level</label><input id="editKidMin" type="number" step="0.1" value="${editingKid.min??''}"></div><div><label>Maximum AR level</label><input id="editKidMax" type="number" step="0.1" value="${editingKid.max??''}"></div></div><div class="small" style="margin-top:9px">Changing the range never removes books. The household library and this child's read/hidden history stay intact.</div>${editingKid.history?.length?`<div class="small" style="margin-top:10px"><b>Previous ranges</b><br>${editingKid.history.slice().reverse().slice(0,6).map(h=>`${escapeHtml(h.date.slice(0,10))}: ${h.min??'—'}–${h.max??'—'}`).join('<br>')}</div>`:''}<button id="deleteKidBtn" class="danger" style="margin-top:14px">Delete child profile</button>`;kidModal.classList.add('open');document.getElementById('deleteKidBtn').addEventListener('click',deleteKid)}
+function saveKidEdit(){if(!editingKid)return;const name=document.getElementById('editKidName').value.trim();const minVal=document.getElementById('editKidMin').value,maxVal=document.getElementById('editKidMax').value;if(!name)return alert('Enter a name.');const min=minVal===''?null:Number(minVal),max=maxVal===''?null:Number(maxVal);if(min!=null&&max!=null&&min>max)return alert('Minimum level must be below maximum level.');if(editingKid.min!==min||editingKid.max!==max){editingKid.history=editingKid.history||[];editingKid.history.push({date:now(),min:editingKid.min,max:editingKid.max})}editingKid.name=name;editingKid.min=min;editingKid.max=max;editingKid.updatedAt=now();persist();kidModal.classList.remove('open');editingKid=null;renderAll()}
+function deleteKid(){if(!editingKid||!confirm('Delete this child profile? Household books will remain.'))return;const id=editingKid.id;data.kids=data.kids.filter(k=>k.id!==id);Object.values(data.books).forEach(b=>{if(b.kidState)delete b.kidState[id]});persist();kidModal.classList.remove('open');editingKid=null;renderAll()}
+function addKid(){const name=newKidName.value.trim();if(!name)return;const k={id:uid(),name,min:null,max:null,history:[],createdAt:now(),updatedAt:now()};data.kids.push(k);newKidName.value='';persist();renderAll();openKid(k.id)}
+
+function bindBookActions(){document.querySelectorAll('.retry').forEach(x=>x.onclick=()=>retry(x.dataset.isbn));document.querySelectorAll('.kidread').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'read'));document.querySelectorAll('.kidhide').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'hidden'));document.querySelectorAll('.kidrestore').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'available'));document.querySelectorAll('.book[data-kid]').forEach(el=>{let startX=0,startY=0;el.addEventListener('touchstart',e=>{startX=e.touches[0].clientX;startY=e.touches[0].clientY},{passive:true});el.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-startX,dy=e.changedTouches[0].clientY-startY;if(Math.abs(dx)>80&&Math.abs(dx)>Math.abs(dy)*1.4){setKidState(el.dataset.isbn,el.dataset.kid,dx<0?'read':'hidden')}})})}
+
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));if(id==='libraryPage')renderLibrary();if(id==='kidsPage')renderKids()}
+async function checkServer(){checkResult.textContent='Checking…';try{const [h,s]=await Promise.all([fetch('/health').then(r=>r.json()),fetch('/api/status').then(r=>r.json())]);checkResult.textContent=h.ok&&s.ok?'✓ Server and Chromium ready':'Check failed'}catch{checkResult.textContent='Check failed'}}
+function exportBackup(){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='scan-ar-backup.json';a.click();URL.revokeObjectURL(a.href)}
+
+scanBtn.addEventListener('click',startScan);stopBtn.addEventListener('click',stopScan);addIsbnBtn.addEventListener('click',()=>{if(enqueue(isbnInput.value,'manual'))isbnInput.value='';else alert('Enter a 10- or 13-character ISBN.')});isbnInput.addEventListener('keydown',e=>{if(e.key==='Enter')addIsbnBtn.click()});
+document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));[librarySearch,libraryKid,libraryStatus,librarySort].forEach(x=>x.addEventListener('input',renderLibrary));addKidBtn.addEventListener('click',addKid);newKidName.addEventListener('keydown',e=>{if(e.key==='Enter')addKid()});kidSaveBtn.addEventListener('click',saveKidEdit);kidCancelBtn.addEventListener('click',()=>{kidModal.classList.remove('open');editingKid=null});kidModal.addEventListener('click',e=>{if(e.target===kidModal){kidModal.classList.remove('open');editingKid=null}});checkBtn.addEventListener('click',checkServer);exportBtn.addEventListener('click',exportBackup);eraseBtn.addEventListener('click',()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}});
+renderAll();pumpQueue();
+</script>
+</body>
+</html>
