@@ -1,3 +1,15 @@
+# Scan AR v1.4
+
+**Build date:** September 15, 2026
+
+## v1.4 UX changes
+- Clearer scan target with instruction to move closer.
+- More square-friendly scan guide on phones.
+- Large checkmark + haptic feedback when a barcode is captured.
+- Visible scan queue summary.
+- Child actions are explicit and reversible; no swipe deletes from the household library.
+- Version/date remain visible on the main screen.
+
 # Scan AR v1.3
 
 **Build date:** September 15, 2026

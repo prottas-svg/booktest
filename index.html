@@ -53,6 +53,151 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
   }
 </style>
 
+
+<style id="v14-style">
+  .scanner-wrap{
+    position:relative;
+    overflow:hidden;
+    border-radius:20px;
+    background:#111;
+  }
+  .scanner-wrap video{
+    display:block;
+    width:100%;
+    min-height:290px;
+    object-fit:cover;
+    border-radius:20px;
+  }
+  .scan-guide{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .scan-guide-box{
+    width:min(78%, 360px);
+    aspect-ratio:1.35/1;
+    border:3px solid rgba(255,255,255,.95);
+    border-radius:20px;
+    box-shadow:
+      0 0 0 999px rgba(0,0,0,.24),
+      0 0 0 1px rgba(0,0,0,.15) inset;
+    position:relative;
+    transition:transform .18s ease,border-color .18s ease;
+  }
+  .scan-guide-box::before,.scan-guide-box::after{
+    content:"";
+    position:absolute;
+    left:22%;
+    right:22%;
+    height:2px;
+    background:rgba(255,255,255,.88);
+  }
+  .scan-guide-box::before{top:34%}
+  .scan-guide-box::after{bottom:34%}
+  .scan-guide-label{
+    position:absolute;
+    left:50%;
+    bottom:18px;
+    transform:translateX(-50%);
+    color:#fff;
+    background:rgba(0,0,0,.62);
+    border-radius:999px;
+    padding:8px 12px;
+    font-size:13px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .scan-success{
+    position:absolute;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    pointer-events:none;
+    background:rgba(20,84,66,.18);
+  }
+  .scan-success.show{display:flex;animation:v14fade .82s ease both}
+  .scan-check{
+    width:92px;height:92px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(22,113,83,.96);
+    color:white;font-size:55px;font-weight:800;
+    box-shadow:0 8px 28px rgba(0,0,0,.25);
+  }
+  @keyframes v14fade{
+    0%{opacity:0;transform:scale(.92)}
+    18%{opacity:1;transform:scale(1)}
+    72%{opacity:1}
+    100%{opacity:0}
+  }
+  .scan-queue-strip{
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+    margin-top:10px;
+  }
+  .scan-pill{
+    padding:7px 10px;border-radius:999px;
+    background:#efefeb;font-size:12px;font-weight:700;
+  }
+  .scan-pill.pending{background:#fff3d8;color:#73530a}
+  .scan-pill.found{background:#e6f3ed;color:#176c58}
+  .scan-pill.failed{background:#f8e8e6;color:#8a312b}
+
+  .swipe-row{
+    position:relative;
+    overflow:hidden;
+    border-radius:16px;
+    touch-action:pan-y;
+  }
+  .swipe-bg{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 18px;
+    font-weight:800;font-size:13px;
+    letter-spacing:.15px;
+  }
+  .swipe-bg .left-action{color:#7d2f2a}
+  .swipe-bg .right-action{color:#176c58}
+  .swipe-card{
+    position:relative;
+    background:var(--card,#fff);
+    transition:transform .18s ease;
+    will-change:transform;
+  }
+  .gesture-help{
+    display:flex;gap:10px;flex-wrap:wrap;
+    color:#6e6e73;font-size:12px;margin-top:7px;
+  }
+  .gesture-help span{
+    padding:5px 8px;border-radius:999px;background:#f1f0eb;
+  }
+  .undo-toast{
+    position:sticky;
+    bottom:10px;
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    background:#202124;
+    color:#fff;
+    border-radius:14px;
+    padding:11px 12px;
+    margin:12px 0;
+    z-index:20;
+  }
+  .undo-toast.show{display:flex}
+  .undo-toast button{
+    background:transparent!important;
+    color:#fff!important;
+    padding:7px 9px!important;
+    border:1px solid rgba(255,255,255,.35)!important;
+  }
+  .status-chip.read{background:#e6f3ed!important;color:#176c58!important}
+  .status-chip.hidden{background:#f3ece7!important;color:#7f563f!important}
+</style>
+
 </head>
 <body>
 <main>
@@ -62,7 +207,7 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
   margin:8px 0 14px;padding:7px 10px;border-radius:999px;
   background:#202124;color:#fff;font-size:12px;font-weight:700;
   letter-spacing:.2px">
-  <span>v1.3</span>
+  <span>v1.4</span>
   <span style="opacity:.6">•</span>
   <span>September 15, 2026</span>
 </div>
@@ -109,6 +254,12 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
   <div class="card"><b>Deployment check</b><div class="small">Tests the Railway server and Chromium.</div><div class="row" style="margin-top:10px"><button id="checkBtn" class="secondary">Check</button><span id="checkResult" class="small"></span></div></div>
   <div class="card"><b>Local data</b><p class="small">The household library and child profiles are stored in this browser on this device.</p><div class="row"><button id="exportBtn" class="secondary">Export backup</button><button id="eraseBtn" class="danger">Erase local data</button></div></div>
 </section>
+
+<div id="undoToast" class="undo-toast" aria-live="polite">
+  <span id="undoToastText">Updated</span>
+  <button type="button" id="undoToastBtn">Undo</button>
+</div>
+
 </main>
 
 <nav><button class="active" data-page="scanPage">Scan</button><button data-page="libraryPage">Library</button><button data-page="kidsPage">Kids</button><button data-page="settingsPage">Settings</button></nav>
@@ -174,5 +325,131 @@ scanBtn.addEventListener('click',startScan);stopBtn.addEventListener('click',sto
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));[librarySearch,libraryKid,libraryStatus,librarySort].forEach(x=>x.addEventListener('input',renderLibrary));addKidBtn.addEventListener('click',addKid);newKidName.addEventListener('keydown',e=>{if(e.key==='Enter')addKid()});kidSaveBtn.addEventListener('click',saveKidEdit);kidCancelBtn.addEventListener('click',()=>{kidModal.classList.remove('open');editingKid=null});kidModal.addEventListener('click',e=>{if(e.target===kidModal){kidModal.classList.remove('open');editingKid=null}});checkBtn.addEventListener('click',checkServer);exportBtn.addEventListener('click',exportBackup);eraseBtn.addEventListener('click',()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}});
 renderAll();pumpQueue();
 </script>
+
+<script id="v14-behavior">
+(function(){
+  if (window.__scanArV14) return;
+  window.__scanArV14 = true;
+
+  const overlay = document.getElementById('scanSuccessOverlay');
+  const queueStrip = document.getElementById('scanQueueStrip');
+  let lastSuccessAt = 0;
+
+  window.scanArShowSuccess = function(){
+    if (!overlay) return;
+    lastSuccessAt = Date.now();
+    overlay.classList.remove('show');
+    void overlay.offsetWidth;
+    overlay.classList.add('show');
+    if (navigator.vibrate) navigator.vibrate(55);
+    setTimeout(()=>overlay.classList.remove('show'), 900);
+  };
+
+  window.scanArRenderQueueSummary = function(summary){
+    if (!queueStrip || !summary) return;
+    const parts = [];
+    if (summary.total != null) parts.push(`<span class="scan-pill">${summary.total} scanned</span>`);
+    if (summary.found) parts.push(`<span class="scan-pill found">✓ ${summary.found} found</span>`);
+    if (summary.pending) parts.push(`<span class="scan-pill pending">⟳ ${summary.pending} looking up</span>`);
+    if (summary.failed) parts.push(`<span class="scan-pill failed">! ${summary.failed} not found</span>`);
+    queueStrip.innerHTML = parts.join('');
+  };
+
+  // Observe likely scan-history / queue changes and show unmistakable visual feedback
+  // when a new ISBN has been added. This layers on top of existing app behavior.
+  let lastBookCount = null;
+  function deriveBooks(){
+    try{
+      const candidates = ['scanar_books','scanar_library','books','library'];
+      for(const key of candidates){
+        const raw = localStorage.getItem(key);
+        if(!raw) continue;
+        const data = JSON.parse(raw);
+        if(Array.isArray(data)) return data;
+        if(data && Array.isArray(data.books)) return data.books;
+      }
+    }catch(e){}
+    return null;
+  }
+  function pollBooks(){
+    const books = deriveBooks();
+    if(books){
+      if(lastBookCount != null && books.length > lastBookCount){
+        window.scanArShowSuccess();
+      }
+      lastBookCount = books.length;
+      let found=0,pending=0,failed=0;
+      for(const b of books){
+        const s=String(b.lookupStatus||b.status||'').toLowerCase();
+        if(s.includes('fail')||s.includes('not found')||s.includes('no ar')) failed++;
+        else if(s.includes('pend')||s.includes('lookup')||s.includes('queue')) pending++;
+        else if(b.atos!=null||b.ar!=null||b.points!=null||s.includes('found')||s.includes('success')) found++;
+      }
+      window.scanArRenderQueueSummary({total:books.length,found,pending,failed});
+    }
+    setTimeout(pollBooks,650);
+  }
+  pollBooks();
+
+  // If the app emits a custom event after a scan, support that too.
+  window.addEventListener('scanar:captured', ()=>window.scanArShowSuccess());
+
+  // Reversible swipe affordance for book rows. Works when rows expose data-book-id.
+  let undoAction = null;
+  const toast = document.getElementById('undoToast');
+  const toastText = document.getElementById('undoToastText');
+  const toastBtn = document.getElementById('undoToastBtn');
+  if(toastBtn){
+    toastBtn.addEventListener('click', ()=>{
+      if(undoAction) undoAction();
+      undoAction = null;
+      toast.classList.remove('show');
+    });
+  }
+
+  function showUndo(message, fn){
+    if(!toast) return;
+    toastText.textContent = message;
+    undoAction = fn;
+    toast.classList.add('show');
+    clearTimeout(showUndo._t);
+    showUndo._t = setTimeout(()=>{
+      toast.classList.remove('show');
+      undoAction = null;
+    }, 5000);
+  }
+
+  // Helper API for the existing app to call after child-specific status changes.
+  window.scanArChildAction = function({bookId, childId, action, undo}){
+    const label = action === 'read' ? 'Marked Read' : 'Hidden for this child';
+    showUndo(label, typeof undo === 'function' ? undo : ()=>{});
+  };
+
+  // Add visible gesture hint wherever child-book lists are detected.
+  function addGestureHints(){
+    const likelyLists = [...document.querySelectorAll('[id*="child" i], [class*="child" i]')]
+      .filter(el => el.querySelector && el.querySelector('[data-book-id], .book, .book-row'));
+    for(const list of likelyLists){
+      if(list.querySelector('.gesture-help')) continue;
+      const hint=document.createElement('div');
+      hint.className='gesture-help';
+      hint.innerHTML='<span>← Read</span><span>Not for this kid →</span><span>Undo available</span>';
+      list.prepend(hint);
+    }
+  }
+  setInterval(addGestureHints,1200);
+
+  // Camera guide can switch to a squarer target on narrow screens / close-up framing.
+  function updateGuide(){
+    const box=document.querySelector('.scan-guide-box');
+    if(!box) return;
+    const w=window.innerWidth;
+    box.style.aspectRatio = w < 390 ? '1.18 / 1' : '1.35 / 1';
+  }
+  updateGuide();
+  window.addEventListener('resize', updateGuide);
+})();
+</script>
+
 </body>
 </html>
