@@ -1,3 +1,14 @@
+# Scan AR v1.5
+
+**Build date:** September 15, 2026
+
+## v1.5 fixes
+- Success ✓ is wired directly to barcode capture.
+- Short audible beep on capture; vibration attempted where browsers support it.
+- Roomier scan box for long and squarer ISBN barcodes.
+- Book title is parsed correctly and shown prominently; author is secondary.
+- Existing successful books are refreshed once to repair old title metadata.
+
 # Scan AR v1.4
 
 **Build date:** September 15, 2026

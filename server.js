@@ -212,7 +212,7 @@ async function performLookup(isbn) {
 }
 
 app.get("/health", (_req, res) => {
-  res.status(200).json({ ok: true, service: "scan-ar", version: "1.2.0", time: new Date().toISOString() });
+  res.status(200).json({ ok: true, service: "scan-ar", version: "1.5.0", time: new Date().toISOString() });
 });
 
 app.get("/api/status", async (_req, res) => {
@@ -242,7 +242,7 @@ app.get("/api/ar/:isbn", async (req, res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-const server = app.listen(port, "0.0.0.0", () => console.log(`Scan AR v1.2.0 listening on ${port}`));
+const server = app.listen(port, "0.0.0.0", () => console.log(`Scan AR v1.5.0 listening on ${port}`));
 
 async function shutdown() {
   console.log("Shutting down…");

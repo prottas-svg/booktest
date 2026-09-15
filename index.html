@@ -54,150 +54,21 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
 </style>
 
 
-<style id="v14-style">
-  .scanner-wrap{
-    position:relative;
-    overflow:hidden;
-    border-radius:20px;
-    background:#111;
-  }
-  .scanner-wrap video{
-    display:block;
-    width:100%;
-    min-height:290px;
-    object-fit:cover;
-    border-radius:20px;
-  }
-  .scan-guide{
-    position:absolute;
-    inset:0;
-    pointer-events:none;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-  }
-  .scan-guide-box{
-    width:min(78%, 360px);
-    aspect-ratio:1.35/1;
-    border:3px solid rgba(255,255,255,.95);
-    border-radius:20px;
-    box-shadow:
-      0 0 0 999px rgba(0,0,0,.24),
-      0 0 0 1px rgba(0,0,0,.15) inset;
-    position:relative;
-    transition:transform .18s ease,border-color .18s ease;
-  }
-  .scan-guide-box::before,.scan-guide-box::after{
-    content:"";
-    position:absolute;
-    left:22%;
-    right:22%;
-    height:2px;
-    background:rgba(255,255,255,.88);
-  }
-  .scan-guide-box::before{top:34%}
-  .scan-guide-box::after{bottom:34%}
-  .scan-guide-label{
-    position:absolute;
-    left:50%;
-    bottom:18px;
-    transform:translateX(-50%);
-    color:#fff;
-    background:rgba(0,0,0,.62);
-    border-radius:999px;
-    padding:8px 12px;
-    font-size:13px;
-    font-weight:700;
-    white-space:nowrap;
-  }
-  .scan-success{
-    position:absolute;
-    inset:0;
-    display:none;
-    align-items:center;
-    justify-content:center;
-    pointer-events:none;
-    background:rgba(20,84,66,.18);
-  }
-  .scan-success.show{display:flex;animation:v14fade .82s ease both}
-  .scan-check{
-    width:92px;height:92px;border-radius:50%;
-    display:flex;align-items:center;justify-content:center;
-    background:rgba(22,113,83,.96);
-    color:white;font-size:55px;font-weight:800;
-    box-shadow:0 8px 28px rgba(0,0,0,.25);
-  }
-  @keyframes v14fade{
-    0%{opacity:0;transform:scale(.92)}
-    18%{opacity:1;transform:scale(1)}
-    72%{opacity:1}
-    100%{opacity:0}
-  }
-  .scan-queue-strip{
-    display:flex;gap:8px;align-items:center;flex-wrap:wrap;
-    margin-top:10px;
-  }
-  .scan-pill{
-    padding:7px 10px;border-radius:999px;
-    background:#efefeb;font-size:12px;font-weight:700;
-  }
-  .scan-pill.pending{background:#fff3d8;color:#73530a}
-  .scan-pill.found{background:#e6f3ed;color:#176c58}
-  .scan-pill.failed{background:#f8e8e6;color:#8a312b}
 
-  .swipe-row{
-    position:relative;
-    overflow:hidden;
-    border-radius:16px;
-    touch-action:pan-y;
-  }
-  .swipe-bg{
-    position:absolute;inset:0;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:0 18px;
-    font-weight:800;font-size:13px;
-    letter-spacing:.15px;
-  }
-  .swipe-bg .left-action{color:#7d2f2a}
-  .swipe-bg .right-action{color:#176c58}
-  .swipe-card{
-    position:relative;
-    background:var(--card,#fff);
-    transition:transform .18s ease;
-    will-change:transform;
-  }
-  .gesture-help{
-    display:flex;gap:10px;flex-wrap:wrap;
-    color:#6e6e73;font-size:12px;margin-top:7px;
-  }
-  .gesture-help span{
-    padding:5px 8px;border-radius:999px;background:#f1f0eb;
-  }
-  .undo-toast{
-    position:sticky;
-    bottom:10px;
-    display:none;
-    align-items:center;
-    justify-content:space-between;
-    gap:12px;
-    background:#202124;
-    color:#fff;
-    border-radius:14px;
-    padding:11px 12px;
-    margin:12px 0;
-    z-index:20;
-  }
-  .undo-toast.show{display:flex}
-  .undo-toast button{
-    background:transparent!important;
-    color:#fff!important;
-    padding:7px 9px!important;
-    border:1px solid rgba(255,255,255,.35)!important;
-  }
-  .status-chip.read{background:#e6f3ed!important;color:#176c58!important}
-  .status-chip.hidden{background:#f3ece7!important;color:#7f563f!important}
+
+<style id="v15-style">
+.reader-shell{position:relative;border-radius:18px;overflow:hidden;background:#111}
+#reader{border-radius:18px;overflow:hidden;background:#111;min-height:110px}
+#reader video{border-radius:18px!important;object-fit:cover}
+.scan-help{font-size:12px;color:var(--muted);line-height:1.35;margin-top:8px}
+.scan-success{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(7,46,35,.28);opacity:0;pointer-events:none;z-index:20;transition:opacity .12s ease}
+.scan-success.show{opacity:1}
+.scan-success-card{display:flex;flex-direction:column;align-items:center;gap:7px;background:rgba(23,108,88,.96);color:white;border-radius:22px;padding:18px 24px;font-weight:800;font-size:16px;box-shadow:0 10px 32px rgba(0,0,0,.25)}
+.scan-check{width:68px;height:68px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:white;color:#176c58;font-size:46px;line-height:1}
+.booktitle{font-size:18px!important;font-weight:800!important}
+.bookauthor{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
+@media (max-width:420px){.scan-success-card{padding:16px 21px}.scan-check{width:62px;height:62px;font-size:42px}}
 </style>
-
 </head>
 <body>
 <main>
@@ -207,7 +78,7 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
   margin:8px 0 14px;padding:7px 10px;border-radius:999px;
   background:#202124;color:#fff;font-size:12px;font-weight:700;
   letter-spacing:.2px">
-  <span>v1.4</span>
+  <span>v1.5</span>
   <span style="opacity:.6">•</span>
   <span>September 15, 2026</span>
 </div>
@@ -215,7 +86,13 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
 
 <section id="scanPage" class="page active">
   <div class="card">
-    <div id="reader"></div>
+    <div class="reader-shell">
+      <div id="reader"></div>
+      <div id="scanSuccessOverlay" class="scan-success" aria-live="polite" aria-hidden="true">
+        <div class="scan-success-card"><div class="scan-check">✓</div><div>Captured</div></div>
+      </div>
+    </div>
+    <div class="scan-help">Bring the barcode close enough to fill most of the scanning box. The box is intentionally roomy for both long and squarer ISBN barcodes.</div>
     <div class="row" style="margin-top:10px">
       <button id="scanBtn">Start rapid scan</button><button id="stopBtn" class="secondary">Stop</button>
     </div>
@@ -268,7 +145,7 @@ nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);back
 
 <script>
 const KEY='scanar_v12';
-let data=loadData(); let scanner=null, scanning=false, activeLookups=0; const MAX_LOOKUPS=2; let recentSession=new Set(); let lastScan={isbn:'',time:0}; let editingKid=null;
+let data=loadData(); let scanner=null, scanning=false, activeLookups=0; const MAX_LOOKUPS=2; let recentSession=new Set(); let lastScan={isbn:'',time:0}; let editingKid=null; let audioCtx=null; let successTimer=null;
 function loadData(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&d.version===2)return d}catch{}return{version:2,books:{},kids:[]}}
 function persist(){localStorage.setItem(KEY,JSON.stringify(data))}
 function clean(s){return String(s||'').replace(/[^0-9Xx]/g,'').toUpperCase()}
@@ -276,22 +153,93 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function now(){return new Date().toISOString()}
 
+function migrateMetadata(){
+  let changed=false;
+  Object.values(data.books||{}).forEach(b=>{
+    if(b.lookupStatus==='found' && Number(b.metadataVersion||0)<2){
+      b.lookupStatus='queued'; changed=true;
+    }
+  });
+  if(changed)persist();
+}
+
+function primeAudio(){
+  try{
+    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  }catch{}
+}
+function playScanBeep(){
+  try{
+    if(!audioCtx)return;
+    if(audioCtx.state==='suspended')audioCtx.resume();
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(880,audioCtx.currentTime);
+    g.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.13,audioCtx.currentTime+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+0.085);
+    o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+0.09);
+  }catch{}
+}
+function showScanSuccess(isbn){
+  const overlay=document.getElementById('scanSuccessOverlay');
+  if(overlay){
+    overlay.setAttribute('aria-hidden','false');
+    overlay.classList.add('show');
+    clearTimeout(successTimer);
+    successTimer=setTimeout(()=>{overlay.classList.remove('show');overlay.setAttribute('aria-hidden','true')},650);
+  }
+  playScanBeep();
+  try{if(navigator.vibrate)navigator.vibrate(45)}catch{}
+  camStatus.textContent='✓ '+isbn+' captured — keep scanning';
+}
+
 function enqueue(raw,source='scan'){
   const isbn=clean(raw); if(![10,13].includes(isbn.length))return false;
   const existing=data.books[isbn];
   if(existing){existing.lastScannedAt=now();existing.scanCount=(existing.scanCount||1)+1; if(existing.lookupStatus==='failed')existing.lookupStatus='queued'}
   else data.books[isbn]={isbn,lookupStatus:'queued',title:null,atos:null,points:null,interestLevel:null,quizNumber:null,wordCount:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}};
   recentSession.add(isbn);persist(); renderAll();pumpQueue();
-  if(navigator.vibrate)navigator.vibrate(40); return true;
+  return true;
 }
 function pumpQueue(){while(activeLookups<MAX_LOOKUPS){const book=Object.values(data.books).find(b=>b.lookupStatus==='queued');if(!book)break;lookupBook(book)}}
 async function lookupBook(book){activeLookups++;book.lookupStatus='pending';book.error=null;persist();renderAll();
-  try{const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn));const j=await r.json();if(!r.ok)throw new Error(j.error||'Lookup failed');Object.assign(book,{lookupStatus:'found',title:j.title||'AR book',atos:j.atos,points:j.points,interestLevel:j.interestLevel,quizNumber:j.quizNumber,wordCount:j.wordCount,error:null,lookedUpAt:now()})}
+  try{const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn));const j=await r.json();if(!r.ok)throw new Error(j.error||'Lookup failed');Object.assign(book,{lookupStatus:'found',title:j.title||book.title||'AR book',author:j.author||book.author||null,atos:j.atos,points:j.points,interestLevel:j.interestLevel,quizNumber:j.quizNumber,wordCount:j.wordCount,error:null,lookedUpAt:now(),metadataVersion:2})}
   catch(e){book.lookupStatus='failed';book.error=e.message||'Lookup failed';book.lookedUpAt=now()}
   finally{activeLookups--;persist();renderAll();pumpQueue()}}
 function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
 
-async function startScan(){if(scanning)return;camStatus.textContent='Starting camera…';try{if(typeof Html5Qrcode==='undefined')throw new Error();scanner=scanner||new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13]});scanning=true;scanBtn.disabled=true;await scanner.start({facingMode:'environment'},{fps:14,qrbox:{width:300,height:130},aspectRatio:1.7778},decoded=>{const isbn=clean(decoded);const t=Date.now();if(isbn.length===13&&(isbn.startsWith('978')||isbn.startsWith('979'))){if(lastScan.isbn===isbn&&t-lastScan.time<1800)return;lastScan={isbn,time:t};enqueue(isbn,'camera');camStatus.textContent='✓ '+isbn+' captured — keep scanning';}},()=>{});camStatus.textContent='Rapid scan active — keep moving from book to book.'}catch{scanning=false;scanBtn.disabled=false;camStatus.textContent='Camera could not start. Allow camera access or add ISBNs manually.'}}
+async function startScan(){
+  if(scanning)return;
+  primeAudio();
+  camStatus.textContent='Starting camera…';
+  try{
+    if(typeof Html5Qrcode==='undefined')throw new Error();
+    scanner=scanner||new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13]});
+    scanning=true;scanBtn.disabled=true;
+    const qrbox=(vw,vh)=>{
+      const width=Math.floor(Math.min(vw*0.86,360));
+      const height=Math.floor(Math.min(width*0.72,vh*0.62,260));
+      return {width:Math.max(220,width),height:Math.max(160,height)};
+    };
+    await scanner.start(
+      {facingMode:'environment'},
+      {fps:16,qrbox,aspectRatio:1.3333,disableFlip:true},
+      decoded=>{
+        const isbn=clean(decoded),t=Date.now();
+        if(isbn.length===13&&(isbn.startsWith('978')||isbn.startsWith('979'))){
+          if(lastScan.isbn===isbn&&t-lastScan.time<1800)return;
+          lastScan={isbn,time:t};
+          if(enqueue(isbn,'camera'))showScanSuccess(isbn);
+        }
+      },()=>{}
+    );
+    camStatus.textContent='Rapid scan active — fill most of the box with each ISBN barcode.';
+  }catch{
+    scanning=false;scanBtn.disabled=false;
+    camStatus.textContent='Camera could not start. Allow camera access or add ISBNs manually.';
+  }
+}
 async function stopScan(){if(scanner&&scanning){try{await scanner.stop()}catch{}try{await scanner.clear()}catch{}}scanning=false;scanBtn.disabled=false;camStatus.textContent='Scanner stopped.'}
 
 function kidState(book,kidId){return book.kidState?.[kidId]||'available'}
@@ -302,7 +250,7 @@ function bookRow(b,kid=null){let pills='';if(b.lookupStatus==='found'){pills+=`<
   if(kid){const s=kidState(b,kid.id);pills+=`<span class="pill">${s==='available'?'Available for '+escapeHtml(kid.name):s==='read'?'Read':'Hidden'}</span>`}
   const actions=b.lookupStatus==='failed'?`<button class="secondary retry" data-isbn="${b.isbn}">Retry</button>`:'';
   const kidActions=kid&&b.lookupStatus==='found'?`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Read</button><button class="ghost kidhide" data-isbn="${b.isbn}" data-kid="${kid.id}">Hide</button><button class="ghost kidrestore" data-isbn="${b.isbn}" data-kid="${kid.id}">Restore</button>`:'';
-  return `<div class="book" data-isbn="${b.isbn}" ${kid?`data-kid="${kid.id}"`:''}><div class="booktitle">${escapeHtml(b.title||b.isbn)}</div><div class="bookmeta">${b.title?'ISBN '+b.isbn:''}${b.quizNumber?' · Quiz #'+escapeHtml(b.quizNumber):''}${b.wordCount?' · '+Number(b.wordCount).toLocaleString()+' words':''}</div><div>${pills}</div><div class="bookactions">${actions}${kidActions}</div></div>`}
+  return `<div class="book" data-isbn="${b.isbn}" ${kid?`data-kid="${kid.id}"`:''}><div class="booktitle">${escapeHtml(b.title||b.isbn)}</div>${b.author?`<div class="bookauthor">${escapeHtml(b.author)}</div>`:''}<div class="bookmeta">${b.title?'ISBN '+b.isbn:''}${b.quizNumber?' · Quiz #'+escapeHtml(b.quizNumber):''}${b.wordCount?' · '+Number(b.wordCount).toLocaleString()+' words':''}</div><div>${pills}</div><div class="bookactions">${actions}${kidActions}</div></div>`}
 
 function renderScan(){const session=[...recentSession].map(i=>data.books[i]).filter(Boolean);qCaptured.textContent=session.length;qPending.textContent=session.filter(b=>['queued','pending'].includes(b.lookupStatus)).length;qFound.textContent=session.filter(b=>b.lookupStatus==='found').length;latestCount.textContent=session.length?session.length+' this session':'';latestList.innerHTML=session.length?session.slice().reverse().slice(0,12).map(b=>bookRow(b)).join(''):'<div class="empty">Start scanning a stack of books.</div>'}
 function populateKidSelect(){const v=libraryKid.value;libraryKid.innerHTML='<option value="">All household books</option>'+data.kids.map(k=>`<option value="${k.id}">${escapeHtml(k.name)} · ${k.min??'—'}–${k.max??'—'}</option>`).join('');if(data.kids.some(k=>k.id===v))libraryKid.value=v}
@@ -323,133 +271,9 @@ function exportBackup(){const blob=new Blob([JSON.stringify(data,null,2)],{type:
 
 scanBtn.addEventListener('click',startScan);stopBtn.addEventListener('click',stopScan);addIsbnBtn.addEventListener('click',()=>{if(enqueue(isbnInput.value,'manual'))isbnInput.value='';else alert('Enter a 10- or 13-character ISBN.')});isbnInput.addEventListener('keydown',e=>{if(e.key==='Enter')addIsbnBtn.click()});
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));[librarySearch,libraryKid,libraryStatus,librarySort].forEach(x=>x.addEventListener('input',renderLibrary));addKidBtn.addEventListener('click',addKid);newKidName.addEventListener('keydown',e=>{if(e.key==='Enter')addKid()});kidSaveBtn.addEventListener('click',saveKidEdit);kidCancelBtn.addEventListener('click',()=>{kidModal.classList.remove('open');editingKid=null});kidModal.addEventListener('click',e=>{if(e.target===kidModal){kidModal.classList.remove('open');editingKid=null}});checkBtn.addEventListener('click',checkServer);exportBtn.addEventListener('click',exportBackup);eraseBtn.addEventListener('click',()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}});
-renderAll();pumpQueue();
+migrateMetadata();renderAll();pumpQueue();
 </script>
 
-<script id="v14-behavior">
-(function(){
-  if (window.__scanArV14) return;
-  window.__scanArV14 = true;
-
-  const overlay = document.getElementById('scanSuccessOverlay');
-  const queueStrip = document.getElementById('scanQueueStrip');
-  let lastSuccessAt = 0;
-
-  window.scanArShowSuccess = function(){
-    if (!overlay) return;
-    lastSuccessAt = Date.now();
-    overlay.classList.remove('show');
-    void overlay.offsetWidth;
-    overlay.classList.add('show');
-    if (navigator.vibrate) navigator.vibrate(55);
-    setTimeout(()=>overlay.classList.remove('show'), 900);
-  };
-
-  window.scanArRenderQueueSummary = function(summary){
-    if (!queueStrip || !summary) return;
-    const parts = [];
-    if (summary.total != null) parts.push(`<span class="scan-pill">${summary.total} scanned</span>`);
-    if (summary.found) parts.push(`<span class="scan-pill found">✓ ${summary.found} found</span>`);
-    if (summary.pending) parts.push(`<span class="scan-pill pending">⟳ ${summary.pending} looking up</span>`);
-    if (summary.failed) parts.push(`<span class="scan-pill failed">! ${summary.failed} not found</span>`);
-    queueStrip.innerHTML = parts.join('');
-  };
-
-  // Observe likely scan-history / queue changes and show unmistakable visual feedback
-  // when a new ISBN has been added. This layers on top of existing app behavior.
-  let lastBookCount = null;
-  function deriveBooks(){
-    try{
-      const candidates = ['scanar_books','scanar_library','books','library'];
-      for(const key of candidates){
-        const raw = localStorage.getItem(key);
-        if(!raw) continue;
-        const data = JSON.parse(raw);
-        if(Array.isArray(data)) return data;
-        if(data && Array.isArray(data.books)) return data.books;
-      }
-    }catch(e){}
-    return null;
-  }
-  function pollBooks(){
-    const books = deriveBooks();
-    if(books){
-      if(lastBookCount != null && books.length > lastBookCount){
-        window.scanArShowSuccess();
-      }
-      lastBookCount = books.length;
-      let found=0,pending=0,failed=0;
-      for(const b of books){
-        const s=String(b.lookupStatus||b.status||'').toLowerCase();
-        if(s.includes('fail')||s.includes('not found')||s.includes('no ar')) failed++;
-        else if(s.includes('pend')||s.includes('lookup')||s.includes('queue')) pending++;
-        else if(b.atos!=null||b.ar!=null||b.points!=null||s.includes('found')||s.includes('success')) found++;
-      }
-      window.scanArRenderQueueSummary({total:books.length,found,pending,failed});
-    }
-    setTimeout(pollBooks,650);
-  }
-  pollBooks();
-
-  // If the app emits a custom event after a scan, support that too.
-  window.addEventListener('scanar:captured', ()=>window.scanArShowSuccess());
-
-  // Reversible swipe affordance for book rows. Works when rows expose data-book-id.
-  let undoAction = null;
-  const toast = document.getElementById('undoToast');
-  const toastText = document.getElementById('undoToastText');
-  const toastBtn = document.getElementById('undoToastBtn');
-  if(toastBtn){
-    toastBtn.addEventListener('click', ()=>{
-      if(undoAction) undoAction();
-      undoAction = null;
-      toast.classList.remove('show');
-    });
-  }
-
-  function showUndo(message, fn){
-    if(!toast) return;
-    toastText.textContent = message;
-    undoAction = fn;
-    toast.classList.add('show');
-    clearTimeout(showUndo._t);
-    showUndo._t = setTimeout(()=>{
-      toast.classList.remove('show');
-      undoAction = null;
-    }, 5000);
-  }
-
-  // Helper API for the existing app to call after child-specific status changes.
-  window.scanArChildAction = function({bookId, childId, action, undo}){
-    const label = action === 'read' ? 'Marked Read' : 'Hidden for this child';
-    showUndo(label, typeof undo === 'function' ? undo : ()=>{});
-  };
-
-  // Add visible gesture hint wherever child-book lists are detected.
-  function addGestureHints(){
-    const likelyLists = [...document.querySelectorAll('[id*="child" i], [class*="child" i]')]
-      .filter(el => el.querySelector && el.querySelector('[data-book-id], .book, .book-row'));
-    for(const list of likelyLists){
-      if(list.querySelector('.gesture-help')) continue;
-      const hint=document.createElement('div');
-      hint.className='gesture-help';
-      hint.innerHTML='<span>← Read</span><span>Not for this kid →</span><span>Undo available</span>';
-      list.prepend(hint);
-    }
-  }
-  setInterval(addGestureHints,1200);
-
-  // Camera guide can switch to a squarer target on narrow screens / close-up framing.
-  function updateGuide(){
-    const box=document.querySelector('.scan-guide-box');
-    if(!box) return;
-    const w=window.innerWidth;
-    box.style.aspectRatio = w < 390 ? '1.18 / 1' : '1.35 / 1';
-  }
-  updateGuide();
-  window.addEventListener('resize', updateGuide);
-})();
-</script>
 
 </body>
 </html>

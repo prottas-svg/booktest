@@ -1,13 +1,12 @@
 {
-  "version": "v1.4",
+  "version": "v1.5",
   "build_date": "2026-09-15",
-  "label": "v1.4 \u2022 September 15, 2026",
+  "label": "v1.5 \u2022 September 15, 2026",
   "changes": [
-    "Clearer barcode target area with closer-scan instruction",
-    "Target shape adapts more squarely on narrow mobile screens",
-    "Large visible success check with haptic feedback",
-    "Scan queue summary for found/pending/failed",
-    "Explicit reversible child-book actions with Undo affordance",
-    "No child action deletes from household library"
+    "Guaranteed visual checkmark in actual scan callback",
+    "Short scan beep feedback",
+    "Roomier, more square-tolerant scan target",
+    "Book title parser fixed; author shown secondarily",
+    "Existing found books automatically re-looked-up once to repair metadata"
   ]
 }
