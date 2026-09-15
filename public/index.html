@@ -3,277 +3,1238 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#176c58">
+<meta name="theme-color" content="#285b50">
 <title>Scan AR</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-:root{--bg:#f5f4ef;--card:#fff;--ink:#202124;--muted:#6d6d72;--accent:#176c58;--soft:#e8f3ef;--line:#deddd7;--warn:#8a6216;--danger:#9b3831}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
-main{max-width:720px;margin:auto;padding:14px 14px 92px}h1{font-size:32px;letter-spacing:-1px;margin:8px 0 0}.sub{color:var(--muted);margin:3px 0 14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:19px;padding:15px;margin:11px 0;box-shadow:0 2px 10px rgba(0,0,0,.025)}
-#reader{width:100%;overflow:hidden;border-radius:16px;background:#111;min-height:80px}#reader video{border-radius:16px}
+:root{
+  --bg:#f7f4ee;--card:#fff;--ink:#202124;--muted:#6d6d72;--line:#dedbd4;
+  --accent:#285b50;--accentSoft:#e7f0ed;--good:#176c58;--warn:#805b10;
+  --bad:#953b34;--blue:#485b83;--shadow:0 2px 10px rgba(0,0,0,.03)
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#fbfaf7 0%,var(--bg) 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+main{max-width:760px;margin:auto;padding:14px 14px 100px}
+h1{font-size:32px;letter-spacing:-1px;margin:8px 0 0}
+.sub{color:var(--muted);margin:3px 0 12px}
+.build{display:inline-flex;gap:7px;align-items:center;background:#202124;color:#fff;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800;margin:7px 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:15px;margin:11px 0;box-shadow:var(--shadow)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.between{justify-content:space-between}.grow{flex:1;min-width:0}
-button{border:0;border-radius:12px;padding:12px 14px;min-height:44px;font-size:15px;font-weight:700;background:var(--accent);color:#fff;cursor:pointer}
-button.secondary{background:var(--soft);color:var(--accent)}button.ghost{background:#efefeb;color:var(--ink)}button.danger{background:#f8eceb;color:var(--danger)}button:disabled{opacity:.45}
-input,select{border:1px solid var(--line);border-radius:12px;padding:12px;font-size:16px;background:#fff;color:var(--ink);min-height:44px}input{width:100%}
-.small{font-size:13px;color:var(--muted);line-height:1.4}.tiny{font-size:11px;color:var(--muted)}
-.tabs{display:flex;gap:5px;background:#e9e8e3;border-radius:14px;padding:4px;margin:8px 0 12px;overflow:auto}.tabs button{background:transparent;color:#58585d;white-space:nowrap;min-height:38px;padding:8px 12px}.tabs button.active{background:#fff;color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.08)}
-.page{display:none}.page.active{display:block}.pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#efefeb;font-size:12px;margin:2px 3px 2px 0}.pill.good{background:#e7f4ee;color:#176c58}.pill.warn{background:#fff2d9;color:var(--warn)}.pill.bad{background:#f8eceb;color:var(--danger)}
-.queue{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.qstat{background:#f2f1ec;border-radius:13px;padding:9px}.qstat b{display:block;font-size:21px}.qstat span{font-size:11px;color:var(--muted)}
-.book{position:relative;padding:12px 0;border-bottom:1px solid #eee;touch-action:pan-y}.book:last-child{border:0}.booktitle{font-weight:750;font-size:17px;line-height:1.25}.bookmeta{font-size:13px;color:var(--muted);margin-top:3px}.bookactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.bookactions button{min-height:34px;padding:6px 9px;font-size:12px}
-.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}.filters .full{grid-column:1/-1}
-.profile{padding:12px 0;border-bottom:1px solid #eee}.profile:last-child{border:0}.rangeInputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rangeInputs label{font-size:12px;color:var(--muted)}
-.empty{text-align:center;color:var(--muted);padding:24px 8px}.okbox{background:#eaf5f0;border:1px solid #c7e2d6;color:#1e654f;padding:10px 12px;border-radius:12px}.warnbox{background:#fff7dc;border:1px solid #eed88e;color:#6d5611;padding:10px 12px;border-radius:12px}
-nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:7px 8px calc(7px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:3px;z-index:5}nav button{background:transparent;color:#666;min-height:44px;padding:7px 12px;font-size:12px}nav button.active{background:var(--soft);color:var(--accent)}
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:20;align-items:flex-end;justify-content:center}.modal.open{display:flex}.sheet{background:#fff;width:min(720px,100%);max-height:90%;overflow:auto;border-radius:22px 22px 0 0;padding:18px 15px calc(22px + env(safe-area-inset-bottom))}
-@media(min-width:620px){.filters{grid-template-columns:2fr 1fr 1fr}.filters .full{grid-column:auto}.queue{max-width:420px}}
-</style>
+button{border:0;border-radius:13px;padding:11px 13px;min-height:44px;font-size:15px;font-weight:750;background:var(--accent);color:#fff;cursor:pointer}
+button.secondary{background:var(--accentSoft);color:var(--accent)}
+button.ghost{background:#efeee9;color:var(--ink)}
+button.danger{background:#f8e9e7;color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+input,select{border:1px solid var(--line);border-radius:12px;padding:11px 12px;font-size:16px;background:#fff;color:var(--ink);min-height:44px}
+input{width:100%}.small{font-size:13px;color:var(--muted);line-height:1.4}.tiny{font-size:11px;color:var(--muted)}
+.page{display:none}.page.active{display:block}
+nav{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.95);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:7px 8px calc(7px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:3px;z-index:30}
+nav button{background:transparent;color:#666;min-height:44px;padding:7px 13px;font-size:12px}
+nav button.active{background:var(--accentSoft);color:var(--accent)}
 
-<style id="v13-style">
-  :root{
-    --scanar-ink:#202124;
-    --scanar-accent:#245c4f;
-    --scanar-accent-soft:#e8f0ed;
-    --scanar-warm:#f4efe6;
-  }
-  body{
-    background:
-      radial-gradient(circle at top right, rgba(36,92,79,.08), transparent 28%),
-      linear-gradient(180deg, #faf9f6 0%, #f4f1eb 100%) !important;
-  }
-  .card{
-    border-radius:20px !important;
-    border:1px solid rgba(32,33,36,.10) !important;
-  }
-  button, .primary{
-    border-radius:14px !important;
-  }
-  #buildBadge{
-    box-shadow:0 1px 0 rgba(255,255,255,.25) inset;
-  }
-</style>
-
-
-
-
-<style id="v15-style">
+.camera-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.switch{display:inline-flex;align-items:center;gap:9px;font-weight:800}.switch input{width:23px;height:23px}
 .reader-shell{position:relative;border-radius:18px;overflow:hidden;background:#111}
-#reader{border-radius:18px;overflow:hidden;background:#111;min-height:110px}
-#reader video{border-radius:18px!important;object-fit:cover}
-.scan-help{font-size:12px;color:var(--muted);line-height:1.35;margin-top:8px}
-.scan-success{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(7,46,35,.28);opacity:0;pointer-events:none;z-index:20;transition:opacity .12s ease}
-.scan-success.show{opacity:1}
-.scan-success-card{display:flex;flex-direction:column;align-items:center;gap:7px;background:rgba(23,108,88,.96);color:white;border-radius:22px;padding:18px 24px;font-weight:800;font-size:16px;box-shadow:0 10px 32px rgba(0,0,0,.25)}
-.scan-check{width:68px;height:68px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:white;color:#176c58;font-size:46px;line-height:1}
-.booktitle{font-size:18px!important;font-weight:800!important}
-.bookauthor{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
-@media (max-width:420px){.scan-success-card{padding:16px 21px}.scan-check{width:62px;height:62px;font-size:42px}}
+#reader{width:100%;min-height:270px;background:#111;border-radius:18px;overflow:hidden}
+#reader video{border-radius:18px!important;object-fit:cover!important}
+.scan-guide{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;z-index:7}
+.scan-box{width:min(80%,390px);aspect-ratio:1.38/1;border:3px solid rgba(255,255,255,.96);border-radius:21px;box-shadow:0 0 0 999px rgba(0,0,0,.12)}
+.scan-label{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.68);color:#fff;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:750;white-space:nowrap}
+.camera-off{min-height:245px;border:1px dashed #cbc8c0;border-radius:18px;display:flex;align-items:center;justify-content:center;text-align:center;padding:25px;color:var(--muted);background:#f7f5f0}
+.scan-success{position:absolute;inset:0;z-index:15;display:flex;align-items:center;justify-content:center;background:rgba(14,70,55,.20);opacity:0;pointer-events:none}
+.scan-success.show{animation:successFlash .82s ease both}
+.success-card{background:rgba(23,108,88,.97);color:#fff;border-radius:22px;padding:16px 22px;text-align:center;font-weight:850;box-shadow:0 10px 28px rgba(0,0,0,.24)}
+.check{width:66px;height:66px;border-radius:50%;background:#fff;color:var(--good);display:flex;align-items:center;justify-content:center;font-size:45px;margin:0 auto 6px}
+@keyframes successFlash{0%{opacity:0;transform:scale(.94)}15%{opacity:1;transform:scale(1)}72%{opacity:1}100%{opacity:0}}
+.scan-help{font-size:12px;color:var(--muted);line-height:1.4;margin-top:8px}
+.outcome{display:none;margin-top:10px;border-radius:14px;padding:11px 12px;font-size:13px;line-height:1.35}
+.outcome.show{display:block}.outcome.good{background:#e7f3ed;color:#165f4d}.outcome.duplicate{background:#edf0f7;color:#3d4865}.outcome.noar{background:#fff3d9;color:#74520c}.outcome.error{background:#f8e9e7;color:#88362f}
+.outcome b{display:block;margin-bottom:2px}.outcome-title{font-weight:850;font-size:15px}
+.queue{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:11px}
+.qstat{background:#f1f0eb;border-radius:13px;padding:9px}.qstat b{display:block;font-size:20px}.qstat span{font-size:10px;color:var(--muted)}
+@media(max-width:420px){.scan-box{aspect-ratio:1.18/1;width:82%}.queue{grid-template-columns:repeat(2,1fr)}}
+
+.section-title{font-size:18px;font-weight:850}
+.segment{display:flex;gap:5px;overflow:auto;background:#eceae5;border-radius:14px;padding:4px;margin:8px 0 12px}
+.segment button{background:transparent;color:#5f6064;white-space:nowrap;min-height:38px;padding:8px 10px;font-size:12px}
+.segment button.active{background:#fff;color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}.filters .full{grid-column:1/-1}
+.summary{font-size:13px;color:var(--muted);margin:10px 0 2px}
+
+.book{position:relative;overflow:hidden;border-bottom:1px solid #eee;touch-action:pan-y}
+.book:last-child{border:0}
+.swipe-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:13px;font-weight:850}
+.swipe-bg .read{color:var(--good)}.swipe-bg .skip{color:#7b523a}
+.book-inner{position:relative;background:#fff;padding:13px 0;transition:transform .16s ease}
+.booktitle{font-weight:850;font-size:17px;line-height:1.25}.bookauthor{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
+.bookmeta{font-size:12px;color:var(--muted);margin-top:4px}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#efefeb;font-size:12px;margin:5px 3px 0 0}
+.pill.good{background:#e7f4ee;color:var(--good)}.pill.warn{background:#fff2d9;color:var(--warn)}.pill.bad{background:#f8eceb;color:var(--bad)}.pill.blue{background:#edf0f7;color:var(--blue)}
+.bookactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.bookactions button{min-height:34px;padding:6px 9px;font-size:12px}
+.provenance{font-size:11px;color:#86868b;margin-top:7px}
+.empty{text-align:center;color:var(--muted);padding:26px 8px}
+.profile{padding:13px 0;border-bottom:1px solid #eee}.profile:last-child{border:0}
+.rangeInputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rangeInputs label{font-size:12px;color:var(--muted)}
+.kid-heading{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}.kid-range{font-size:21px;font-weight:900}
+.gesture-hint{font-size:11px;color:var(--muted);margin:5px 0 9px}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:50;align-items:flex-end;justify-content:center}
+.modal.open{display:flex}.sheet{background:#fff;width:min(760px,100%);max-height:90%;overflow:auto;border-radius:22px 22px 0 0;padding:18px 15px calc(22px + env(safe-area-inset-bottom))}
+.toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:70;background:#202124;color:#fff;border-radius:14px;padding:10px 12px;display:none;align-items:center;gap:12px;max-width:calc(100% - 28px)}
+.toast.show{display:flex}.toast button{background:transparent;border:1px solid rgba(255,255,255,.35);padding:6px 9px;min-height:34px}
+@media(min-width:640px){.filters{grid-template-columns:2fr 1fr 1fr}.filters .full{grid-column:auto}}
 </style>
+
+<style id="v18-style">
+.first-scan-prompt{
+  display:none;
+  margin:0 0 11px;
+  padding:14px;
+  border:1px solid rgba(40,91,80,.22);
+  border-radius:18px;
+  background:#eef5f2;
+}
+.first-scan-prompt.show{display:block}
+.first-scan-prompt-title{
+  font-size:17px;
+  font-weight:850;
+  margin-bottom:3px;
+}
+.first-scan-prompt-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+.first-scan-prompt-actions button{
+  flex:1;
+  min-width:135px;
+}
+</style>
+
+
+<style id="v19-style">
+:root{
+  --bg:#f7f5f0;
+  --card:#ffffff;
+  --ink:#1f2326;
+  --muted:#73777b;
+  --line:#e4e1da;
+  --accent:#2f5f54;
+  --accentSoft:#e8efec;
+  --good:#2f6c5c;
+  --warn:#8a6a2b;
+  --bad:#8c4b45;
+  --shadow:none;
+}
+body{
+  background:#f7f5f0;
+  color:var(--ink);
+}
+main{
+  max-width:720px;
+  padding:18px 18px 100px;
+}
+h1{
+  font-size:31px;
+  font-weight:760;
+  letter-spacing:-.8px;
+  margin:8px 0 2px;
+}
+.sub{
+  font-size:14px;
+  color:var(--muted);
+  margin:3px 0 10px;
+}
+.build{
+  background:transparent;
+  color:var(--muted);
+  padding:0;
+  margin:0 0 18px;
+  font-weight:650;
+  font-size:11px;
+  letter-spacing:.15px;
+}
+.card{
+  background:transparent;
+  border:0;
+  border-radius:0;
+  padding:0;
+  margin:22px 0;
+  box-shadow:none;
+}
+.card + .card{
+  border-top:1px solid var(--line);
+  padding-top:20px;
+}
+.section-title{
+  font-size:17px;
+  font-weight:760;
+  letter-spacing:-.15px;
+}
+button{
+  border-radius:12px;
+  min-height:44px;
+  font-size:15px;
+  font-weight:700;
+}
+button.secondary{
+  background:#ecefeb;
+}
+button.ghost{
+  background:#efeee9;
+}
+input,select{
+  border:1px solid #d8d5ce;
+  border-radius:12px;
+  background:#fff;
+}
+nav{
+  background:rgba(250,249,246,.96);
+  border-top:1px solid #dfddd7;
+}
+nav button{
+  color:#6e7174;
+}
+nav button.active{
+  background:transparent;
+  color:var(--accent);
+  font-weight:800;
+}
+.reader-shell{
+  border-radius:22px;
+}
+#reader{
+  border-radius:22px;
+  min-height:300px;
+}
+.camera-off{
+  background:#f0eee8;
+  border:0;
+  min-height:260px;
+  border-radius:22px;
+}
+.camera-bar{
+  margin-bottom:12px;
+}
+.scan-help{
+  margin-top:10px;
+  max-width:560px;
+}
+.queue{
+  display:flex;
+  gap:16px;
+  margin-top:15px;
+  padding-top:14px;
+  border-top:1px solid var(--line);
+}
+.qstat{
+  background:transparent;
+  padding:0;
+  border-radius:0;
+}
+.qstat b{
+  font-size:18px;
+  font-weight:800;
+}
+.qstat span{
+  font-size:11px;
+}
+.outcome{
+  border-radius:12px;
+  padding:11px 12px;
+}
+.first-scan-prompt{
+  background:#edf2ef;
+  border:0;
+  border-radius:16px;
+  padding:14px 15px;
+  margin:0 0 18px;
+}
+.first-scan-prompt-title{
+  font-size:16px;
+}
+.segment{
+  background:#eceae5;
+  border-radius:12px;
+  padding:3px;
+}
+.segment button{
+  border-radius:9px;
+}
+.filters{
+  gap:10px;
+}
+.summary{
+  margin-top:12px;
+}
+.book{
+  border-bottom:1px solid #e9e6df;
+}
+.book-inner{
+  padding:15px 0;
+  background:transparent;
+}
+.booktitle{
+  font-size:17px;
+  font-weight:760;
+  letter-spacing:-.1px;
+}
+.bookauthor{
+  margin-top:3px;
+  font-size:13px;
+  font-weight:500;
+}
+.bookmeta{
+  margin-top:5px;
+  font-size:12px;
+}
+.pill{
+  margin-top:7px;
+  padding:4px 7px;
+  background:#efeee9;
+  font-size:11px;
+}
+.pill.good{
+  background:#e8f0ed;
+}
+.pill.warn{
+  background:#f4ede0;
+}
+.pill.bad{
+  background:#f2e8e6;
+}
+.pill.blue{
+  background:#eceef3;
+}
+.provenance{
+  font-size:10.5px;
+  margin-top:7px;
+}
+.bookactions{
+  margin-top:10px;
+}
+.bookactions button{
+  background:transparent;
+  border:1px solid #d9d6cf;
+  color:var(--ink);
+}
+.kid-heading{
+  align-items:center;
+}
+.kid-range{
+  font-size:20px;
+  font-weight:780;
+  margin-top:2px;
+}
+.gesture-hint{
+  margin:8px 0 12px;
+}
+.profile{
+  padding:15px 0;
+}
+.toast{
+  background:#25292c;
+  border-radius:12px;
+}
+@media(max-width:420px){
+  main{padding-left:15px;padding-right:15px}
+  .queue{gap:12px;flex-wrap:wrap}
+  .qstat{min-width:42%}
+}
+</style>
+
+
+<style id="v20-style">
+.backup-note{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:12px 0;
+}
+.backup-dot{
+  width:9px;height:9px;border-radius:50%;
+  background:var(--good);
+  margin-top:5px;flex:0 0 auto;
+}
+.backup-controls{
+  display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;
+}
+.backup-controls button{min-width:145px}
+.backup-last{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--muted);
+}
+</style>
+
+
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Scan AR">
+<meta name="mobile-web-app-capable" content="yes">
+
+
+<style id="v21-style">
+.install-tip{
+  display:none;
+  margin:0 0 16px;
+  padding:13px 14px;
+  border-radius:16px;
+  background:#edf2ef;
+  border:1px solid rgba(47,95,84,.12);
+}
+.install-tip.show{display:block}
+.install-tip-title{font-size:15px;font-weight:800;margin-bottom:3px}
+.install-tip-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+.install-tip-actions button{min-width:120px}
+</style>
+
+
+<style id="v22-style">
+.protection-box{
+  padding:14px 0;
+  border-top:1px solid var(--line);
+  margin-top:14px;
+}
+.protection-status{
+  display:flex;align-items:center;gap:9px;font-size:14px;font-weight:750;
+}
+.protection-status .dot{
+  width:9px;height:9px;border-radius:50%;background:#9b8d73;flex:0 0 auto;
+}
+.protection-status.ok .dot{background:var(--good)}
+.protection-status.warn .dot{background:var(--warn)}
+.recovery-code{
+  margin-top:10px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:15px;font-weight:750;letter-spacing:.8px;
+  background:#efeee9;border-radius:11px;padding:10px 11px;
+  word-break:break-all;
+}
+.storage-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.storage-actions button{min-width:135px}
+.restore-box{display:none;margin-top:12px}
+.restore-box.show{display:block}
+</style>
+
 </head>
 <body>
 <main>
 <h1>Scan AR</h1>
-<div id="buildBadge" style="
-  display:inline-flex;align-items:center;gap:8px;
-  margin:8px 0 14px;padding:7px 10px;border-radius:999px;
-  background:#202124;color:#fff;font-size:12px;font-weight:700;
-  letter-spacing:.2px">
-  <span>v1.5</span>
-  <span style="opacity:.6">•</span>
-  <span>September 15, 2026</span>
+<div class="build"><span>v2.2</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+
+<div id="installTip" class="install-tip">
+  <div class="install-tip-title">Use Scan AR like an app</div>
+  <div class="small">On iPhone: tap Share, then <b>Add to Home Screen</b>. It will open in its own app window.</div>
+  <div class="install-tip-actions">
+    <button id="dismissInstallTip" class="secondary">Got it</button>
+  </div>
 </div>
-<div class="sub">Rapid-scan your household books, then see what fits each child now.</div>
+
+<div class="sub">Scan books, save your library, and see what fits each child.</div>
 
 <section id="scanPage" class="page active">
+
+<div id="firstScanPrompt" class="first-scan-prompt" aria-live="polite">
+  <div class="first-scan-prompt-title">✓ First book captured</div>
+  <div class="small">Keep scanning, or open Library to see your results.</div>
+  <div class="first-scan-prompt-actions">
+    <button id="keepScanningBtn">Keep scanning</button>
+    <button id="viewLibraryBtn" class="secondary">View Library</button>
+  </div>
+</div>
+
   <div class="card">
-    <div class="reader-shell">
+    <div class="camera-bar">
+      <label class="switch"><input id="cameraToggle" type="checkbox"><span id="cameraToggleText">Camera off</span></label>
+      <span class="small">Only runs on this Scan page.</span>
+    </div>
+    <div id="cameraOff" class="camera-off"><div><b>Camera is off</b><br><span class="small">Turn it on when you are ready to rapid-scan a stack of books.</span></div></div>
+    <div id="readerShell" class="reader-shell" style="display:none">
       <div id="reader"></div>
-      <div id="scanSuccessOverlay" class="scan-success" aria-live="polite" aria-hidden="true">
-        <div class="scan-success-card"><div class="scan-check">✓</div><div>Captured</div></div>
-      </div>
+      <div class="scan-guide"><div class="scan-box"></div><div class="scan-label">Move closer — fill most of this area</div></div>
+      <div id="scanSuccess" class="scan-success" aria-live="polite"><div class="success-card"><div class="check">✓</div><div id="successText">Captured</div></div></div>
     </div>
-    <div class="scan-help">Bring the barcode close enough to fill most of the scanning box. The box is intentionally roomy for both long and squarer ISBN barcodes.</div>
-    <div class="row" style="margin-top:10px">
-      <button id="scanBtn">Start rapid scan</button><button id="stopBtn" class="secondary">Stop</button>
-    </div>
-    <div id="camStatus" class="small" style="margin-top:7px">Each ISBN is captured instantly; AR lookups continue in the background.</div>
+    <div class="scan-help">Move closer until the barcode fills most of the guide. Scanning continues while lookups run in the background.</div>
+    <div id="scanOutcome" class="outcome" aria-live="polite"></div>
     <div class="queue">
-      <div class="qstat"><b id="qCaptured">0</b><span>captured</span></div><div class="qstat"><b id="qPending">0</b><span>looking up</span></div><div class="qstat"><b id="qFound">0</b><span>found</span></div>
+      <div class="qstat"><b id="qCaptured">0</b><span>captured this session</span></div>
+      <div class="qstat"><b id="qPending">0</b><span>looking up</span></div>
+      <div class="qstat"><b id="qFound">0</b><span>AR found</span></div>
+      <div class="qstat"><b id="qNoAr">0</b><span>no AR quiz</span></div>
     </div>
   </div>
+
   <div class="card">
-    <div class="row"><div class="grow"><input id="isbnInput" inputmode="numeric" autocomplete="off" placeholder="ISBN-10 or ISBN-13"></div><button id="addIsbnBtn">Add</button></div>
+    <div class="row"><div class="grow"><input id="isbnInput" inputmode="numeric" autocomplete="off" placeholder="Or enter ISBN-10 / ISBN-13"></div><button id="addIsbnBtn">Add</button></div>
   </div>
-  <div class="card"><div class="row between"><b>Latest scans</b><span id="latestCount" class="small"></span></div><div id="latestList"></div></div>
+
+  <div class="card"><div class="row between"><div class="section-title">Latest scans</div><span id="latestCount" class="small"></span></div><div id="latestList"></div></div>
 </section>
 
 <section id="libraryPage" class="page">
   <div class="card">
-    <div class="filters">
-      <div class="full"><input id="librarySearch" placeholder="Search title or ISBN"></div>
-      <div><select id="libraryKid"><option value="">All household books</option></select></div>
-      <div><select id="libraryStatus"><option value="found">Found books</option><option value="all">All scans</option><option value="failed">Failed / no AR</option><option value="pending">Pending</option></select></div>
+    <div class="section-title">Household library</div>
+    <div class="small">Your saved books.</div>
+    <div class="filters" style="margin-top:10px">
+      <div class="full"><input id="librarySearch" placeholder="Search title, author, or ISBN"></div>
+      <div>
+        <select id="libraryStatus">
+          <option value="ar">Books with AR data</option>
+          <option value="all">All scans</option>
+          <option value="no_ar">No AR quiz for ISBN</option>
+          <option value="error">Lookup errors</option>
+          <option value="pending">Still looking up</option>
+        </select>
+      </div>
+      <div>
+        <select id="librarySort">
+          <option value="recent">Recently scanned</option>
+          <option value="title">Title</option>
+          <option value="level">AR level</option>
+          <option value="points">AR points</option>
+        </select>
+      </div>
     </div>
-    <div class="row" style="margin-top:8px"><select id="librarySort"><option value="recent">Recently scanned</option><option value="level">AR level</option><option value="points">AR points</option><option value="title">Title</option></select><span id="librarySummary" class="small"></span></div>
+    <div id="librarySummary" class="summary"></div>
   </div>
   <div class="card"><div id="libraryList"></div></div>
 </section>
 
 <section id="kidsPage" class="page">
   <div class="card">
-    <b>Add child</b>
-    <div class="row" style="margin-top:9px"><div class="grow"><input id="newKidName" placeholder="Name"></div><button id="addKidBtn">Add</button></div>
+    <div class="row between"><div><div class="section-title">Kids</div><div class="small">Set and update each child’s current AR range.</div></div><button id="addKidQuickBtn" class="secondary">Add child</button></div>
+    <div id="kidSelector" class="segment"></div>
   </div>
-  <div class="card"><div id="kidsList"></div></div>
+
+  <div id="kidNoSelection" class="card"><div class="empty">Add or choose a child to see books that fit their current range.</div></div>
+
+  <div id="kidView" style="display:none">
+    <div class="card">
+      <div class="kid-heading">
+        <div><div id="kidNameHeading" class="section-title"></div><div id="kidRangeHeading" class="kid-range"></div></div>
+        <button id="editSelectedKid" class="secondary">Edit range</button>
+      </div>
+      <div id="kidStats" class="small" style="margin-top:5px"></div>
+      <div id="kidFilterTabs" class="segment">
+        <button data-kfilter="in" class="active">In range</button>
+        <button data-kfilter="below">Below</button>
+        <button data-kfilter="above">Above</button>
+        <button data-kfilter="read">Read</button>
+        <button data-kfilter="not_interested">Not interested</button>
+        <button data-kfilter="all">All AR books</button>
+      </div>
+      <div class="gesture-hint">Swipe left: Read · Swipe right: Not interested</div>
+      <div id="kidFilterSummary" class="summary"></div>
+    </div>
+    <div class="card"><div id="kidBookList"></div></div>
+  </div>
 </section>
 
 <section id="settingsPage" class="page">
-  <div class="card"><b>Deployment check</b><div class="small">Tests the Railway server and Chromium.</div><div class="row" style="margin-top:10px"><button id="checkBtn" class="secondary">Check</button><span id="checkResult" class="small"></span></div></div>
-  <div class="card"><b>Local data</b><p class="small">The household library and child profiles are stored in this browser on this device.</p><div class="row"><button id="exportBtn" class="secondary">Export backup</button><button id="eraseBtn" class="danger">Erase local data</button></div></div>
-</section>
-
-<div id="undoToast" class="undo-toast" aria-live="polite">
-  <span id="undoToastText">Updated</span>
-  <button type="button" id="undoToastBtn">Undo</button>
+  <div class="card">
+    <div class="section-title">Accuracy & data</div>
+    <p class="small"><b>AR values are accepted only from an exact ISBN search in AR Bookfinder.</b> The app does not guess AR values from a similar title or another edition.</p>
+    <p class="small">“No AR quiz for this ISBN” means no exact AR result was found for the scanned ISBN; it does not claim that every edition of that title lacks an AR quiz. Title/author fallback metadata may come from Open Library when no AR result is available.</p>
+    <div class="row"><button id="checkBtn" class="secondary">Deployment check</button><span id="checkResult" class="small"></span></div>
+  </div>
+  <div class="card">
+    
+<div class="section-title">Library protection</div>
+<div class="small">Your library stays on this device and is also backed up privately to your Scan AR server.</div>
+<div class="protection-box">
+  <div id="serverProtectionStatus" class="protection-status"><span class="dot"></span><span>Preparing backup…</span></div>
+  <div class="small" style="margin-top:7px">Recovery code</div>
+  <div id="recoveryCodeDisplay" class="recovery-code"></div>
+  <div class="small" style="margin-top:6px">Keep this code private. It can restore the household library and kid settings on another device.</div>
+  <div class="storage-actions">
+    <button id="syncNowBtn" class="secondary">Back up now</button>
+    <button id="showRestoreBtn" class="secondary">Restore with code</button>
+  </div>
+  <div id="restoreBox" class="restore-box">
+    <input id="restoreCodeInput" autocomplete="off" autocapitalize="characters" placeholder="Enter recovery code">
+    <div class="row" style="margin-top:8px">
+      <button id="restoreBtn">Restore library</button>
+      <button id="cancelRestoreBtn" class="ghost">Cancel</button>
+    </div>
+  </div>
+  <div id="serverBackupTime" class="backup-last"></div>
 </div>
+<div class="section-title" style="margin-top:20px">Backups</div>
 
+    <div class="backup-note">
+      <span class="backup-dot"></span>
+      <div>
+        <div><b>Auto-backup after each scan session</b></div>
+        <div class="small">After you scan one or more books, turning the camera off or leaving Scan downloads a timestamped CSV of your household library.</div>
+      </div>
+    </div>
+    <label class="switch" style="margin-top:6px">
+      <input id="autoBackupToggle" type="checkbox" checked>
+      <span>Auto-backup CSV</span>
+    </label>
+    <div class="backup-controls">
+      <button id="downloadCsvBtn" class="secondary">Download CSV now</button>
+      <button id="exportBtn" class="secondary">Download full JSON backup</button>
+    </div>
+    <div id="lastBackupText" class="backup-last"></div>
+  </div>
+  <div class="card">
+    <button id="eraseBtn" class="danger">Erase local data</button>
+  </div>
+</section>
 </main>
 
-<nav><button class="active" data-page="scanPage">Scan</button><button data-page="libraryPage">Library</button><button data-page="kidsPage">Kids</button><button data-page="settingsPage">Settings</button></nav>
+<nav>
+  <button class="active" data-page="scanPage">Scan</button>
+  <button data-page="libraryPage">Library</button>
+  <button data-page="kidsPage">Kids</button>
+  <button data-page="settingsPage">Settings</button>
+</nav>
 
-<div id="kidModal" class="modal"><div class="sheet"><h2 id="kidModalTitle" style="margin-top:0"></h2><div id="kidModalBody"></div><div class="row" style="margin-top:14px"><button id="kidSaveBtn">Save</button><button id="kidCancelBtn" class="ghost">Cancel</button></div></div></div>
+<div id="kidModal" class="modal"><div class="sheet">
+  <h2 id="kidModalTitle" style="margin-top:0">Child</h2>
+  <div id="kidModalBody"></div>
+  <div class="row" style="margin-top:14px"><button id="kidSaveBtn">Save</button><button id="kidCancelBtn" class="ghost">Cancel</button></div>
+</div></div>
+
+<div id="toast" class="toast" aria-live="polite"><span id="toastText"></span><button id="undoBtn">Undo</button></div>
 
 <script>
-const KEY='scanar_v12';
-let data=loadData(); let scanner=null, scanning=false, activeLookups=0; const MAX_LOOKUPS=2; let recentSession=new Set(); let lastScan={isbn:'',time:0}; let editingKid=null; let audioCtx=null; let successTimer=null;
-function loadData(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&d.version===2)return d}catch{}return{version:2,books:{},kids:[]}}
-function persist(){localStorage.setItem(KEY,JSON.stringify(data))}
-function clean(s){return String(s||'').replace(/[^0-9Xx]/g,'').toUpperCase()}
-function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
-function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function now(){return new Date().toISOString()}
+const KEY='scan_ar_family_v3'; // permanent user-data namespace; do not version with app releases
+const RECOVERY_KEY='scan_ar_recovery_code_v1';
+const SERVER_BACKUP_TIME_KEY='scan_ar_server_backup_time_v1';
+let serverSyncTimer=null;
+let serverSyncInFlight=false;
 
-function migrateMetadata(){
-  let changed=false;
-  Object.values(data.books||{}).forEach(b=>{
-    if(b.lookupStatus==='found' && Number(b.metadataVersion||0)<2){
-      b.lookupStatus='queued'; changed=true;
-    }
-  });
-  if(changed)persist();
+
+const AUTO_BACKUP_KEY='scan_ar_auto_backup_csv_v1';
+const LAST_BACKUP_KEY='scan_ar_last_backup_v1';
+let sessionCapturedCount=0;
+let sessionBackupDone=false;
+
+const OLD_KEYS=['scan_ar_family_v2','scanar_family','scanar_books'];
+const MAX_LOOKUPS=3;
+
+const FIRST_SCAN_PROMPT_KEY='scan_ar_first_scan_prompt_seen_v1';
+function firstScanPromptSeen(){return localStorage.getItem(FIRST_SCAN_PROMPT_KEY)==='1'}
+function showFirstScanPrompt(){
+  if(firstScanPromptSeen()) return;
+  const p=$('firstScanPrompt');
+  if(p) p.classList.add('show');
+}
+function dismissFirstScanPrompt(){
+  localStorage.setItem(FIRST_SCAN_PROMPT_KEY,'1');
+  const p=$('firstScanPrompt');
+  if(p) p.classList.remove('show');
 }
 
-function primeAudio(){
-  try{
-    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state==='suspended')audioCtx.resume();
-  }catch{}
+let activeLookups=0;
+let scanner=null;
+let scanning=false;
+let currentPage='scanPage';
+let recentSession=[];
+let selectedKidId=null;
+let kidFilter='in';
+let editingKid=null;
+let lastScan={isbn:'',time:0};
+let undoState=null;
+let audioCtx=null;
+
+const $=id=>document.getElementById(id);
+const now=()=>new Date().toISOString();
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+
+function makeRecoveryCode(){
+  const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes=new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let chars='';
+  for(const b of bytes) chars+=alphabet[b%alphabet.length];
+  return [chars.slice(0,4),chars.slice(4,8),chars.slice(8,12),chars.slice(12,16)].join('-');
 }
-function playScanBeep(){
-  try{
-    if(!audioCtx)return;
-    if(audioCtx.state==='suspended')audioCtx.resume();
-    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-    o.type='sine'; o.frequency.setValueAtTime(880,audioCtx.currentTime);
-    g.gain.setValueAtTime(0.0001,audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.13,audioCtx.currentTime+0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+0.085);
-    o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+0.09);
-  }catch{}
+function getRecoveryCode(){
+  let code=localStorage.getItem(RECOVERY_KEY);
+  if(!code){code=makeRecoveryCode();localStorage.setItem(RECOVERY_KEY,code)}
+  return code;
 }
-function showScanSuccess(isbn){
-  const overlay=document.getElementById('scanSuccessOverlay');
-  if(overlay){
-    overlay.setAttribute('aria-hidden','false');
-    overlay.classList.add('show');
-    clearTimeout(successTimer);
-    successTimer=setTimeout(()=>{overlay.classList.remove('show');overlay.setAttribute('aria-hidden','true')},650);
+
+const clean=s=>String(s||'').replace(/[^0-9Xx]/g,'').toUpperCase();
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function valid10(i){if(!/^\d{9}[\dX]$/.test(i))return false;let sum=0;[...i].forEach((c,n)=>sum+=(c==='X'?10:Number(c))*(10-n));return sum%11===0}
+function valid13(i){if(!/^\d{13}$/.test(i))return false;let sum=0;for(let n=0;n<12;n++)sum+=Number(i[n])*(n%2?3:1);return (10-(sum%10))%10===Number(i[12])}
+function validISBN(i){return i.length===10?valid10(i):i.length===13?valid13(i):false}
+
+function freshData(){return{version:3,books:{},kids:[]}}
+function loadData(){
+  try{
+    const d=JSON.parse(localStorage.getItem(KEY)||'null');
+    if(d&&d.version===3)return d;
+  }catch{}
+  for(const key of OLD_KEYS){
+    try{
+      const old=JSON.parse(localStorage.getItem(key)||'null');
+      if(old&&typeof old==='object'){
+        const d=freshData();
+        if(old.books){
+          const vals=Array.isArray(old.books)?old.books:Object.values(old.books);
+          for(const b of vals){
+            if(!b?.isbn)continue;
+            const status=b.lookupStatus==='failed'?'error':(b.lookupStatus||'queued');
+            d.books[b.isbn]={...b,lookupStatus:status,kidState:b.kidState||{},metadataSource:b.metadataSource||null};
+          }
+        }
+        if(Array.isArray(old.kids))d.kids=old.kids.map(k=>({...k,history:k.history||[]}));
+        return d;
+      }
+    }catch{}
   }
-  playScanBeep();
-  try{if(navigator.vibrate)navigator.vibrate(45)}catch{}
-  camStatus.textContent='✓ '+isbn+' captured — keep scanning';
+  return freshData();
+}
+let data=loadData();
+function persist(){
+  localStorage.setItem(KEY,JSON.stringify(data));
+  scheduleServerBackup();
+}
+function scheduleServerBackup(){
+  clearTimeout(serverSyncTimer);
+  serverSyncTimer=setTimeout(()=>backupToServer(false),900);
+}
+async function backupToServer(manual=false){
+  if(serverSyncInFlight)return false;
+  serverSyncInFlight=true;
+  renderProtectionStatus('syncing');
+  try{
+    const code=getRecoveryCode();
+    const r=await fetch('/api/backup/'+encodeURIComponent(code),{
+      method:'PUT',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({data,clientUpdatedAt:now()})
+    });
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(j.error||'Backup failed');
+    const ts=j.savedAt||now();
+    localStorage.setItem(SERVER_BACKUP_TIME_KEY,ts);
+    renderProtectionStatus('ok');
+    return true;
+  }catch(e){
+    renderProtectionStatus('error',e.message);
+    return false;
+  }finally{
+    serverSyncInFlight=false;
+  }
+}
+function renderProtectionStatus(state='idle',detail=''){
+  const box=$('serverProtectionStatus');
+  const time=$('serverBackupTime');
+  if(!box)return;
+  const last=localStorage.getItem(SERVER_BACKUP_TIME_KEY);
+  box.className='protection-status '+(state==='ok'?'ok':state==='error'?'warn':'');
+  if(state==='syncing')box.innerHTML='<span class="dot"></span><span>Backing up…</span>';
+  else if(state==='error')box.innerHTML='<span class="dot"></span><span>Saved on device · server backup needs attention</span>';
+  else if(last)box.innerHTML='<span class="dot"></span><span>Protected</span>';
+  else box.innerHTML='<span class="dot"></span><span>Saved on this device</span>';
+  if(time){
+    time.textContent=last
+      ? `Last online backup: ${new Date(last).toLocaleString()}`
+      : (detail ? detail : 'No online backup completed yet.');
+  }
+  const code=$('recoveryCodeDisplay');
+  if(code)code.textContent=getRecoveryCode();
+}
+async function restoreFromServer(){
+  const code=cleanRecoveryCode($('restoreCodeInput').value);
+  if(!code)return alert('Enter a recovery code.');
+  if(!confirm('Replace the library on this device with the recovered library?'))return;
+  try{
+    const r=await fetch('/api/backup/'+encodeURIComponent(code));
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(j.error||'Recovery code not found.');
+    if(!j.data||typeof j.data!=='object')throw new Error('Backup is invalid.');
+    data=j.data;
+    localStorage.setItem(KEY,JSON.stringify(data));
+    localStorage.setItem(RECOVERY_KEY,code);
+    localStorage.setItem(SERVER_BACKUP_TIME_KEY,j.savedAt||now());
+    $('restoreBox').classList.remove('show');
+    renderAll();renderProtectionStatus('ok');
+    alert('Library restored.');
+  }catch(e){alert(e.message||'Restore failed.')}
+}
+function cleanRecoveryCode(v){
+  const raw=String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(raw.length!==16)return '';
+  return [raw.slice(0,4),raw.slice(4,8),raw.slice(8,12),raw.slice(12,16)].join('-');
 }
 
-function enqueue(raw,source='scan'){
-  const isbn=clean(raw); if(![10,13].includes(isbn.length))return false;
-  const existing=data.books[isbn];
-  if(existing){existing.lastScannedAt=now();existing.scanCount=(existing.scanCount||1)+1; if(existing.lookupStatus==='failed')existing.lookupStatus='queued'}
-  else data.books[isbn]={isbn,lookupStatus:'queued',title:null,atos:null,points:null,interestLevel:null,quizNumber:null,wordCount:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}};
-  recentSession.add(isbn);persist(); renderAll();pumpQueue();
-  return true;
+function setOutcome(type,title,author,detail){
+  const box=$('scanOutcome');
+  box.className='outcome show '+type;
+  let head=type==='good'?'AR match found':type==='duplicate'?'Already in library':type==='noar'?'No AR quiz found for this ISBN':'Lookup error';
+  box.innerHTML=`<b>${head}</b><div class="outcome-title">${esc(title||'Book scanned')}</div>${author?`<div>${esc(author)}</div>`:''}${detail?`<div class="small" style="margin-top:3px">${esc(detail)}</div>`:''}`;
+  clearTimeout(setOutcome.t);
+  setOutcome.t=setTimeout(()=>box.classList.remove('show'),4400);
 }
-function pumpQueue(){while(activeLookups<MAX_LOOKUPS){const book=Object.values(data.books).find(b=>b.lookupStatus==='queued');if(!book)break;lookupBook(book)}}
-async function lookupBook(book){activeLookups++;book.lookupStatus='pending';book.error=null;persist();renderAll();
-  try{const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn));const j=await r.json();if(!r.ok)throw new Error(j.error||'Lookup failed');Object.assign(book,{lookupStatus:'found',title:j.title||book.title||'AR book',author:j.author||book.author||null,atos:j.atos,points:j.points,interestLevel:j.interestLevel,quizNumber:j.quizNumber,wordCount:j.wordCount,error:null,lookedUpAt:now(),metadataVersion:2})}
-  catch(e){book.lookupStatus='failed';book.error=e.message||'Lookup failed';book.lookedUpAt=now()}
-  finally{activeLookups--;persist();renderAll();pumpQueue()}}
+function beep(){
+  try{
+    audioCtx=audioCtx||new(window.AudioContext||window.webkitAudioContext)();
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.frequency.value=880;g.gain.setValueAtTime(.06,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.08);
+    o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+.085);
+  }catch{}
+  if(navigator.vibrate)navigator.vibrate(45);
+}
+function showCapture(text='Captured'){
+  $('successText').textContent=text;
+  const o=$('scanSuccess');o.classList.remove('show');void o.offsetWidth;o.classList.add('show');
+  beep();
+}
+function showToast(text,undo){
+  undoState=undo;$('toastText').textContent=text;$('toast').classList.add('show');
+  clearTimeout(showToast.t);showToast.t=setTimeout(()=>{$('toast').classList.remove('show');undoState=null},5000);
+}
+$('undoBtn').onclick=()=>{if(undoState)undoState();undoState=null;$('toast').classList.remove('show')};
+
+function bookTitle(b){return b.title||('ISBN '+b.isbn)}
+function enqueue(raw,source='scan'){
+  const isbn=clean(raw);
+  if(!validISBN(isbn))return false;
+  const isFirstEverBook=Object.keys(data.books).length===0;
+  const existing=data.books[isbn];
+  if(existing){
+    existing.lastScannedAt=now();existing.scanCount=(existing.scanCount||1)+1;
+    if(!recentSession.includes(isbn))recentSession.push(isbn);
+    persist();renderAll();
+    showCapture('Already saved');
+    setOutcome('duplicate',bookTitle(existing),existing.author,'No duplicate was added.');
+    return true;
+  }
+  data.books[isbn]={
+    isbn,lookupStatus:'queued',title:null,author:null,atos:null,points:null,interestLevel:null,quizNumber:null,wordCount:null,
+    metadataSource:null,arSource:null,lookedUpAt:null,error:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}
+  };
+  recentSession.push(isbn);persist();renderAll();showCapture();
+  if(isFirstEverBook) showFirstScanPrompt();
+  pumpQueue();return true;
+}
+function pumpQueue(){
+  while(activeLookups<MAX_LOOKUPS){
+    const b=Object.values(data.books).find(x=>x.lookupStatus==='queued');
+    if(!b)break;
+    lookupBook(b);
+  }
+}
+async function lookupBook(book,refresh=false){
+  activeLookups++;book.lookupStatus='pending';book.error=null;persist();renderAll();
+  try{
+    const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(refresh?'?refresh=1':''));
+    const j=await r.json().catch(()=>({}));
+    if(r.ok){
+      Object.assign(book,{
+        lookupStatus:'found',title:j.title||book.title||null,author:j.author||book.author||null,
+        atos:j.atos,points:j.points,interestLevel:j.interestLevel,quizNumber:j.quizNumber,wordCount:j.wordCount,
+        arSource:'AR Bookfinder',metadataSource:j.metadataSource||'AR Bookfinder',lookedUpAt:j.lookedUpAt||now(),error:null
+      });
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points`);
+    }else if(r.status===404 && j.reason==='no_ar_record'){
+      Object.assign(book,{
+        lookupStatus:'no_ar',title:j.title||book.title||null,author:j.author||book.author||null,
+        metadataSource:j.metadataSource||'Open Library',lookedUpAt:j.lookedUpAt||now(),error:null
+      });
+      setOutcome('noar',bookTitle(book),book.author,'The barcode was read correctly. No exact AR result was found for this ISBN.');
+    }else{
+      throw new Error(j.error||'Lookup failed');
+    }
+  }catch(e){
+    book.lookupStatus='error';book.error=e.message||'Lookup failed';book.lookedUpAt=now();
+    setOutcome('error',bookTitle(book),book.author,'This is a lookup problem, not a “no AR quiz” result.');
+  }finally{
+    activeLookups--;persist();
+$('keepScanningBtn').onclick=()=>{
+  dismissFirstScanPrompt();
+  if(!$('cameraToggle').checked){
+    $('cameraToggle').checked=true;
+    startCamera();
+  }
+};
+$('viewLibraryBtn').onclick=()=>{
+  dismissFirstScanPrompt();
+  showPage('libraryPage');
+};
+
+renderBackupStatus();
+renderProtectionStatus();
+renderAll();pumpQueue();
+setTimeout(()=>backupToServer(false),1200);
+  }
+}
 function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
 
-async function startScan(){
-  if(scanning)return;
-  primeAudio();
-  camStatus.textContent='Starting camera…';
+async function startCamera(){
+  if(currentPage!=='scanPage'||!$('cameraToggle').checked||scanning)return;
+  if(typeof Html5Qrcode==='undefined'){setOutcome('error','Scanner unavailable',null,'The scanner library did not load.');return}
+  $('cameraOff').style.display='none';$('readerShell').style.display='block';
   try{
-    if(typeof Html5Qrcode==='undefined')throw new Error();
-    scanner=scanner||new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13]});
-    scanning=true;scanBtn.disabled=true;
+    scanner=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13]});
+    scanning=true;
     const qrbox=(vw,vh)=>{
-      const width=Math.floor(Math.min(vw*0.86,360));
-      const height=Math.floor(Math.min(width*0.72,vh*0.62,260));
-      return {width:Math.max(220,width),height:Math.max(160,height)};
+      const width=Math.floor(Math.min(vw*.82,390));
+      const height=Math.floor(Math.min(width*.82,vh*.65,310));
+      return {width:Math.max(220,width),height:Math.max(170,height)};
     };
-    await scanner.start(
-      {facingMode:'environment'},
-      {fps:16,qrbox,aspectRatio:1.3333,disableFlip:true},
-      decoded=>{
-        const isbn=clean(decoded),t=Date.now();
-        if(isbn.length===13&&(isbn.startsWith('978')||isbn.startsWith('979'))){
-          if(lastScan.isbn===isbn&&t-lastScan.time<1800)return;
-          lastScan={isbn,time:t};
-          if(enqueue(isbn,'camera'))showScanSuccess(isbn);
-        }
-      },()=>{}
-    );
-    camStatus.textContent='Rapid scan active — fill most of the box with each ISBN barcode.';
-  }catch{
-    scanning=false;scanBtn.disabled=false;
-    camStatus.textContent='Camera could not start. Allow camera access or add ISBNs manually.';
+    await scanner.start({facingMode:'environment'},{fps:18,qrbox,aspectRatio:1.3333,disableFlip:true},decoded=>{
+      const isbn=clean(decoded),t=Date.now();
+      if(isbn.length===13&&(isbn.startsWith('978')||isbn.startsWith('979'))){
+        if(lastScan.isbn===isbn&&t-lastScan.time<1800)return;
+        lastScan={isbn,time:t};enqueue(isbn,'camera');
+      }
+    },()=>{});
+    $('cameraToggleText').textContent='Camera on';
+  }catch(e){
+    scanning=false;$('cameraToggle').checked=false;$('cameraToggleText').textContent='Camera off';
+    $('readerShell').style.display='none';$('cameraOff').style.display='flex';
+    setOutcome('error','Camera could not start',null,'Check camera permission and try again.');
   }
 }
-async function stopScan(){if(scanner&&scanning){try{await scanner.stop()}catch{}try{await scanner.clear()}catch{}}scanning=false;scanBtn.disabled=false;camStatus.textContent='Scanner stopped.'}
+async function stopCamera(){
+  $('cameraToggleText').textContent='Camera off';
+  if(scanner&&scanning){
+    try{await scanner.stop()}catch{}
+    try{await scanner.clear()}catch{}
+  }
+  scanner=null;scanning=false;
+  document.querySelectorAll('video').forEach(v=>{const s=v.srcObject;if(s?.getTracks)s.getTracks().forEach(t=>t.stop());v.srcObject=null});
+  $('readerShell').style.display='none';$('cameraOff').style.display='flex';
+}
+$('cameraToggle').addEventListener('change',async()=>{
+  if($('cameraToggle').checked&&currentPage==='scanPage'){
+    sessionCapturedCount=0;
+    sessionBackupDone=false;
+    await startCamera();
+  }else{
+    await stopCamera();
+    maybeAutoBackup();
+  }
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera()});
+window.addEventListener('pagehide',stopCamera);
 
-function kidState(book,kidId){return book.kidState?.[kidId]||'available'}
-function fitsKid(book,kid){if(book.lookupStatus!=='found'||book.atos==null)return false;const n=Number(book.atos);return (kid.min==null||n>=Number(kid.min))&&(kid.max==null||n<=Number(kid.max))&&kidState(book,kid.id)==='available'}
-function setKidState(isbn,kidId,state){const b=data.books[isbn];if(!b)return;b.kidState=b.kidState||{};b.kidState[kidId]=state;persist();renderAll()}
+function kidState(b,kidId){return b.kidState?.[kidId]||'available'}
+function setKidState(isbn,kidId,state){
+  const b=data.books[isbn];if(!b)return;
+  b.kidState=b.kidState||{};
+  const prev=b.kidState[kidId]||'available';
+  b.kidState[kidId]=state;persist();renderAll();
+  const label=state==='read'?'Marked Read':'Marked Not interested';
+  showToast(label,()=>{b.kidState[kidId]=prev;persist();renderAll()});
+}
+function within(b,k){if(b.lookupStatus!=='found'||b.atos==null)return null;const n=Number(b.atos);if(k.min!=null&&n<Number(k.min))return 'below';if(k.max!=null&&n>Number(k.max))return 'above';return 'in'}
 
-function bookRow(b,kid=null){let pills='';if(b.lookupStatus==='found'){pills+=`<span class="pill good">AR ${b.atos??'—'}</span><span class="pill">${b.points??'—'} pts</span>${b.interestLevel?`<span class="pill">${escapeHtml(b.interestLevel)}</span>`:''}`}else if(b.lookupStatus==='failed')pills+=`<span class="pill bad">Not found</span>`;else pills+=`<span class="pill warn">${b.lookupStatus==='pending'?'Looking up…':'Queued'}</span>`;
-  if(kid){const s=kidState(b,kid.id);pills+=`<span class="pill">${s==='available'?'Available for '+escapeHtml(kid.name):s==='read'?'Read':'Hidden'}</span>`}
-  const actions=b.lookupStatus==='failed'?`<button class="secondary retry" data-isbn="${b.isbn}">Retry</button>`:'';
-  const kidActions=kid&&b.lookupStatus==='found'?`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Read</button><button class="ghost kidhide" data-isbn="${b.isbn}" data-kid="${kid.id}">Hide</button><button class="ghost kidrestore" data-isbn="${b.isbn}" data-kid="${kid.id}">Restore</button>`:'';
-  return `<div class="book" data-isbn="${b.isbn}" ${kid?`data-kid="${kid.id}"`:''}><div class="booktitle">${escapeHtml(b.title||b.isbn)}</div>${b.author?`<div class="bookauthor">${escapeHtml(b.author)}</div>`:''}<div class="bookmeta">${b.title?'ISBN '+b.isbn:''}${b.quizNumber?' · Quiz #'+escapeHtml(b.quizNumber):''}${b.wordCount?' · '+Number(b.wordCount).toLocaleString()+' words':''}</div><div>${pills}</div><div class="bookactions">${actions}${kidActions}</div></div>`}
+function statusPills(b,kid=null){
+  let s='';
+  if(b.lookupStatus==='found'){
+    s+=`<span class="pill good">AR ${b.atos??'—'}</span><span class="pill">${b.points??'—'} pts</span>`;
+    if(b.interestLevel)s+=`<span class="pill">${esc(b.interestLevel)}</span>`;
+  }else if(b.lookupStatus==='no_ar')s+=`<span class="pill warn">No AR quiz for this ISBN</span>`;
+  else if(b.lookupStatus==='error')s+=`<span class="pill bad">Lookup error</span>`;
+  else s+=`<span class="pill blue">${b.lookupStatus==='pending'?'Looking up…':'Queued'}</span>`;
+  if(kid){
+    const ks=kidState(b,kid.id);
+    if(ks==='read')s+=`<span class="pill good">Read by ${esc(kid.name)}</span>`;
+    if(ks==='not_interested')s+=`<span class="pill warn">Not interested</span>`;
+  }
+  return s;
+}
+function bookRow(b,kid=null){
+  const actions=[];
+  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar')actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>`);
+  if(kid&&b.lookupStatus==='found'){
+    const ks=kidState(b,kid.id);
+    if(ks!=='read')actions.push(`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Mark Read</button>`);
+    if(ks!=='not_interested')actions.push(`<button class="ghost kidskip" data-isbn="${b.isbn}" data-kid="${kid.id}">Not interested</button>`);
+    if(ks!=='available')actions.push(`<button class="ghost kidrestore" data-isbn="${b.isbn}" data-kid="${kid.id}">Make available</button>`);
+  }
+  const prov=b.lookedUpAt?`Checked ${new Date(b.lookedUpAt).toLocaleDateString()}${b.lookupStatus==='found'?' · AR data: AR Bookfinder':''}${b.metadataSource&&b.metadataSource!=='AR Bookfinder'?' · Book metadata: '+esc(b.metadataSource):''}`:'';
+  return `<div class="book" data-isbn="${b.isbn}" ${kid?`data-kid="${kid.id}"`:''}>
+    ${kid?`<div class="swipe-bg"><span class="read">Not interested →</span><span class="skip">← Read</span></div>`:''}
+    <div class="book-inner">
+      <div class="booktitle">${esc(bookTitle(b))}</div>
+      ${b.author?`<div class="bookauthor">${esc(b.author)}</div>`:''}
+      <div class="bookmeta">ISBN ${esc(b.isbn)}${b.quizNumber?' · Quiz #'+esc(b.quizNumber):''}${b.wordCount?' · '+Number(b.wordCount).toLocaleString()+' words':''}</div>
+      <div>${statusPills(b,kid)}</div>
+      ${prov?`<div class="provenance">${prov}</div>`:''}
+      ${b.error?`<div class="small" style="color:var(--bad);margin-top:5px">${esc(b.error)}</div>`:''}
+      ${actions.length?`<div class="bookactions">${actions.join('')}</div>`:''}
+    </div>
+  </div>`;
+}
+function bindBookActions(scope=document){
+  scope.querySelectorAll('.retry').forEach(x=>x.onclick=()=>retry(x.dataset.isbn));
+  scope.querySelectorAll('.kidread').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'read'));
+  scope.querySelectorAll('.kidskip').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'not_interested'));
+  scope.querySelectorAll('.kidrestore').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'available'));
+  scope.querySelectorAll('.book[data-kid]').forEach(el=>{
+    let sx=0,sy=0;
+    const inner=el.querySelector('.book-inner');
+    el.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});
+    el.addEventListener('touchmove',e=>{const dx=e.touches[0].clientX-sx,dy=e.touches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy)*1.3)inner.style.transform=`translateX(${Math.max(-105,Math.min(105,dx))}px)`},{passive:true});
+    el.addEventListener('touchend',e=>{
+      const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;inner.style.transform='';
+      if(Math.abs(dx)>85&&Math.abs(dx)>Math.abs(dy)*1.35)setKidState(el.dataset.isbn,el.dataset.kid,dx<0?'read':'not_interested');
+    });
+  });
+}
 
-function renderScan(){const session=[...recentSession].map(i=>data.books[i]).filter(Boolean);qCaptured.textContent=session.length;qPending.textContent=session.filter(b=>['queued','pending'].includes(b.lookupStatus)).length;qFound.textContent=session.filter(b=>b.lookupStatus==='found').length;latestCount.textContent=session.length?session.length+' this session':'';latestList.innerHTML=session.length?session.slice().reverse().slice(0,12).map(b=>bookRow(b)).join(''):'<div class="empty">Start scanning a stack of books.</div>'}
-function populateKidSelect(){const v=libraryKid.value;libraryKid.innerHTML='<option value="">All household books</option>'+data.kids.map(k=>`<option value="${k.id}">${escapeHtml(k.name)} · ${k.min??'—'}–${k.max??'—'}</option>`).join('');if(data.kids.some(k=>k.id===v))libraryKid.value=v}
-function renderLibrary(){populateKidSelect();let list=Object.values(data.books);const q=librarySearch.value.trim().toLowerCase();if(q)list=list.filter(b=>(b.title||'').toLowerCase().includes(q)||b.isbn.includes(q));const status=libraryStatus.value;if(status==='found')list=list.filter(b=>b.lookupStatus==='found');if(status==='failed')list=list.filter(b=>b.lookupStatus==='failed');if(status==='pending')list=list.filter(b=>['queued','pending'].includes(b.lookupStatus));const kid=data.kids.find(k=>k.id===libraryKid.value)||null;if(kid)list=list.filter(b=>fitsKid(b,kid));const sort=librarySort.value;if(sort==='level')list.sort((a,b)=>(a.atos??999)-(b.atos??999));else if(sort==='points')list.sort((a,b)=>(b.points??-1)-(a.points??-1));else if(sort==='title')list.sort((a,b)=>(a.title||a.isbn).localeCompare(b.title||b.isbn));else list.sort((a,b)=>String(b.lastScannedAt).localeCompare(String(a.lastScannedAt)));const pts=list.reduce((s,b)=>s+(Number(b.points)||0),0);librarySummary.textContent=`${list.length} book${list.length===1?'':'s'}${kid?' · '+pts.toFixed(1).replace('.0','')+' AR pts':''}`;libraryList.innerHTML=list.length?list.map(b=>bookRow(b,kid)).join(''):'<div class="empty">No books match this view.</div>';bindBookActions()}
-function renderKids(){if(!data.kids.length){kidsList.innerHTML='<div class="empty">Add a child and set the current school AR range.</div>';return}kidsList.innerHTML=data.kids.map(k=>{const fit=Object.values(data.books).filter(b=>fitsKid(b,k));const pts=fit.reduce((s,b)=>s+(Number(b.points)||0),0);const read=Object.values(data.books).filter(b=>kidState(b,k.id)==='read').length;return `<div class="profile"><div class="row between"><div><b>${escapeHtml(k.name)}</b><div class="small">Current AR range: ${k.min??'—'}–${k.max??'—'} · ${fit.length} available · ${pts.toFixed(1).replace('.0','')} pts · ${read} read</div></div><button class="secondary editKid" data-id="${k.id}">Edit</button></div></div>`}).join('');document.querySelectorAll('.editKid').forEach(x=>x.addEventListener('click',()=>openKid(x.dataset.id)))}
+function renderScan(){
+  const session=recentSession.map(i=>data.books[i]).filter(Boolean);
+  $('qCaptured').textContent=session.length;
+  $('qPending').textContent=session.filter(b=>['queued','pending'].includes(b.lookupStatus)).length;
+  $('qFound').textContent=session.filter(b=>b.lookupStatus==='found').length;
+  $('qNoAr').textContent=session.filter(b=>b.lookupStatus==='no_ar').length;
+  $('latestCount').textContent=session.length?session.length+' this session':'';
+  $('latestList').innerHTML=session.length?session.slice().reverse().slice(0,15).map(b=>bookRow(b)).join(''):'<div class="empty">Turn on the camera and scan a stack of books.</div>';
+  bindBookActions($('latestList'));
+}
+function renderLibrary(){
+  let list=Object.values(data.books);
+  const q=$('librarySearch').value.trim().toLowerCase();
+  if(q)list=list.filter(b=>[b.title,b.author,b.isbn].join(' ').toLowerCase().includes(q));
+  const st=$('libraryStatus').value;
+  if(st==='ar')list=list.filter(b=>b.lookupStatus==='found');
+  else if(st==='no_ar')list=list.filter(b=>b.lookupStatus==='no_ar');
+  else if(st==='error')list=list.filter(b=>b.lookupStatus==='error');
+  else if(st==='pending')list=list.filter(b=>['queued','pending'].includes(b.lookupStatus));
+  const sort=$('librarySort').value;
+  if(sort==='title')list.sort((a,b)=>bookTitle(a).localeCompare(bookTitle(b)));
+  else if(sort==='level')list.sort((a,b)=>(a.atos??999)-(b.atos??999));
+  else if(sort==='points')list.sort((a,b)=>(b.points??-1)-(a.points??-1));
+  else list.sort((a,b)=>String(b.lastScannedAt).localeCompare(String(a.lastScannedAt)));
+  $('librarySummary').textContent=`${list.length} item${list.length===1?'':'s'} shown · ${Object.values(data.books).filter(b=>b.lookupStatus==='found').length} AR books in household library`;
+  $('libraryList').innerHTML=list.length?list.map(b=>bookRow(b)).join(''):'<div class="empty">No books match this view.</div>';
+  bindBookActions($('libraryList'));
+}
+
+function renderKidSelector(){
+  const box=$('kidSelector');
+  if(!data.kids.length){box.innerHTML='';return}
+  if(!selectedKidId||!data.kids.some(k=>k.id===selectedKidId))selectedKidId=data.kids[0].id;
+  box.innerHTML=data.kids.map(k=>`<button data-kidpick="${k.id}" class="${k.id===selectedKidId?'active':''}">${esc(k.name)}</button>`).join('');
+  box.querySelectorAll('[data-kidpick]').forEach(b=>b.onclick=()=>{selectedKidId=b.dataset.kidpick;kidFilter='in';renderKids()});
+}
+function filteredKidBooks(k){
+  const all=Object.values(data.books).filter(b=>b.lookupStatus==='found');
+  return all.filter(b=>{
+    const ks=kidState(b,k.id),range=within(b,k);
+    if(kidFilter==='read')return ks==='read';
+    if(kidFilter==='not_interested')return ks==='not_interested';
+    if(kidFilter==='all')return true;
+    return ks==='available'&&range===kidFilter;
+  });
+}
+function renderKids(){
+  renderKidSelector();
+  const k=data.kids.find(x=>x.id===selectedKidId);
+  $('kidNoSelection').style.display=k?'none':'block';$('kidView').style.display=k?'block':'none';
+  if(!k)return;
+  $('kidNameHeading').textContent=k.name;
+  $('kidRangeHeading').textContent=`AR ${k.min??'—'}–${k.max??'—'}`;
+  const all=Object.values(data.books).filter(b=>b.lookupStatus==='found');
+  const available=all.filter(b=>kidState(b,k.id)==='available'&&within(b,k)==='in');
+  const pts=available.reduce((s,b)=>s+(Number(b.points)||0),0);
+  const read=all.filter(b=>kidState(b,k.id)==='read').length;
+  $('kidStats').textContent=`${available.length} currently in range · ${pts.toFixed(1).replace('.0','')} available AR points · ${read} read`;
+  $('kidFilterTabs').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.kfilter===kidFilter));
+  let list=filteredKidBooks(k);
+  list.sort((a,b)=>(a.atos??999)-(b.atos??999)||bookTitle(a).localeCompare(bookTitle(b)));
+  const labels={in:'in range and available',below:'below current range',above:'above current range',read:'marked Read',not_interested:'marked Not interested',all:'AR books in the household'};
+  $('kidFilterSummary').textContent=`${list.length} book${list.length===1?'':'s'} ${labels[kidFilter]}.`;
+  $('kidBookList').innerHTML=list.length?list.map(b=>bookRow(b,k)).join(''):'<div class="empty">No books in this view.</div>';
+  bindBookActions($('kidBookList'));
+}
 function renderAll(){renderScan();renderLibrary();renderKids()}
 
-function openKid(id){editingKid=data.kids.find(k=>k.id===id);if(!editingKid)return;kidModalTitle.textContent='Edit '+editingKid.name;kidModalBody.innerHTML=`<label class="small">Name</label><input id="editKidName" value="${escapeHtml(editingKid.name)}"><div class="rangeInputs" style="margin-top:10px"><div><label>Minimum AR level</label><input id="editKidMin" type="number" step="0.1" value="${editingKid.min??''}"></div><div><label>Maximum AR level</label><input id="editKidMax" type="number" step="0.1" value="${editingKid.max??''}"></div></div><div class="small" style="margin-top:9px">Changing the range never removes books. The household library and this child's read/hidden history stay intact.</div>${editingKid.history?.length?`<div class="small" style="margin-top:10px"><b>Previous ranges</b><br>${editingKid.history.slice().reverse().slice(0,6).map(h=>`${escapeHtml(h.date.slice(0,10))}: ${h.min??'—'}–${h.max??'—'}`).join('<br>')}</div>`:''}<button id="deleteKidBtn" class="danger" style="margin-top:14px">Delete child profile</button>`;kidModal.classList.add('open');document.getElementById('deleteKidBtn').addEventListener('click',deleteKid)}
-function saveKidEdit(){if(!editingKid)return;const name=document.getElementById('editKidName').value.trim();const minVal=document.getElementById('editKidMin').value,maxVal=document.getElementById('editKidMax').value;if(!name)return alert('Enter a name.');const min=minVal===''?null:Number(minVal),max=maxVal===''?null:Number(maxVal);if(min!=null&&max!=null&&min>max)return alert('Minimum level must be below maximum level.');if(editingKid.min!==min||editingKid.max!==max){editingKid.history=editingKid.history||[];editingKid.history.push({date:now(),min:editingKid.min,max:editingKid.max})}editingKid.name=name;editingKid.min=min;editingKid.max=max;editingKid.updatedAt=now();persist();kidModal.classList.remove('open');editingKid=null;renderAll()}
-function deleteKid(){if(!editingKid||!confirm('Delete this child profile? Household books will remain.'))return;const id=editingKid.id;data.kids=data.kids.filter(k=>k.id!==id);Object.values(data.books).forEach(b=>{if(b.kidState)delete b.kidState[id]});persist();kidModal.classList.remove('open');editingKid=null;renderAll()}
-function addKid(){const name=newKidName.value.trim();if(!name)return;const k={id:uid(),name,min:null,max:null,history:[],createdAt:now(),updatedAt:now()};data.kids.push(k);newKidName.value='';persist();renderAll();openKid(k.id)}
+function openKid(id=null){
+  editingKid=id?data.kids.find(k=>k.id===id):null;
+  $('kidModalTitle').textContent=editingKid?'Edit '+editingKid.name:'Add child';
+  $('kidModalBody').innerHTML=`
+    <label class="small">Name</label><input id="editKidName" value="${esc(editingKid?.name||'')}" placeholder="Child name">
+    <div class="rangeInputs" style="margin-top:10px">
+      <div><label>Minimum AR level</label><input id="editKidMin" type="number" step="0.1" value="${editingKid?.min??''}" placeholder="e.g. 2.8"></div>
+      <div><label>Maximum AR level</label><input id="editKidMax" type="number" step="0.1" value="${editingKid?.max??''}" placeholder="e.g. 3.6"></div>
+    </div>
+    <div class="small" style="margin-top:9px">Update this whenever the school changes the range. Books and this child’s Read / Not interested history stay intact.</div>
+    ${editingKid?.history?.length?`<div class="small" style="margin-top:10px"><b>Previous ranges</b><br>${editingKid.history.slice().reverse().slice(0,6).map(h=>`${esc(h.date.slice(0,10))}: ${h.min??'—'}–${h.max??'—'}`).join('<br>')}</div>`:''}
+    ${editingKid?'<button id="deleteKidBtn" class="danger" style="margin-top:14px">Delete child profile</button>':''}
+  `;
+  $('kidModal').classList.add('open');
+  if(editingKid)$('deleteKidBtn').onclick=deleteKid;
+}
+function saveKid(){
+  const name=$('editKidName').value.trim(),minV=$('editKidMin').value,maxV=$('editKidMax').value;
+  if(!name)return alert('Enter a name.');
+  const min=minV===''?null:Number(minV),max=maxV===''?null:Number(maxV);
+  if(min!=null&&max!=null&&min>max)return alert('Minimum AR level must be below maximum.');
+  if(editingKid){
+    if(editingKid.min!==min||editingKid.max!==max){editingKid.history=editingKid.history||[];editingKid.history.push({date:now(),min:editingKid.min,max:editingKid.max})}
+    Object.assign(editingKid,{name,min,max,updatedAt:now()});
+  }else{
+    const k={id:uid(),name,min,max,history:[],createdAt:now(),updatedAt:now()};data.kids.push(k);selectedKidId=k.id;
+  }
+  persist();$('kidModal').classList.remove('open');editingKid=null;renderAll();
+}
+function deleteKid(){
+  if(!editingKid||!confirm('Delete this child profile? Household books will remain.'))return;
+  const id=editingKid.id;data.kids=data.kids.filter(k=>k.id!==id);Object.values(data.books).forEach(b=>{if(b.kidState)delete b.kidState[id]});
+  if(selectedKidId===id)selectedKidId=data.kids[0]?.id||null;
+  persist();$('kidModal').classList.remove('open');editingKid=null;renderAll();
+}
 
-function bindBookActions(){document.querySelectorAll('.retry').forEach(x=>x.onclick=()=>retry(x.dataset.isbn));document.querySelectorAll('.kidread').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'read'));document.querySelectorAll('.kidhide').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'hidden'));document.querySelectorAll('.kidrestore').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'available'));document.querySelectorAll('.book[data-kid]').forEach(el=>{let startX=0,startY=0;el.addEventListener('touchstart',e=>{startX=e.touches[0].clientX;startY=e.touches[0].clientY},{passive:true});el.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-startX,dy=e.changedTouches[0].clientY-startY;if(Math.abs(dx)>80&&Math.abs(dx)>Math.abs(dy)*1.4){setKidState(el.dataset.isbn,el.dataset.kid,dx<0?'read':'hidden')}})})}
+async function showPage(id){
+  const leavingScan=(currentPage==='scanPage' && id!=='scanPage');
+  if(leavingScan) maybeAutoBackup();
+  currentPage=id;
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));
+  if(id!=='scanPage'){await stopCamera();$('cameraToggle').checked=false}
+  if(id==='libraryPage')renderLibrary();
+  if(id==='kidsPage')renderKids();
+}
+async function checkServer(){
+  $('checkResult').textContent='Checking…';
+  try{const [h,s]=await Promise.all([fetch('/health').then(r=>r.json()),fetch('/api/status').then(r=>r.json())]);$('checkResult').textContent=h.ok&&s.ok?`✓ Ready · ${h.version}`:'Check failed'}catch{$('checkResult').textContent='Check failed'}
+}
 
-function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));if(id==='libraryPage')renderLibrary();if(id==='kidsPage')renderKids()}
-async function checkServer(){checkResult.textContent='Checking…';try{const [h,s]=await Promise.all([fetch('/health').then(r=>r.json()),fetch('/api/status').then(r=>r.json())]);checkResult.textContent=h.ok&&s.ok?'✓ Server and Chromium ready':'Check failed'}catch{checkResult.textContent='Check failed'}}
-function exportBackup(){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='scan-ar-backup.json';a.click();URL.revokeObjectURL(a.href)}
+function csvEscape(value){
+  const s=value==null?'':String(value);
+  return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function localDateStamp(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+function buildLibraryCsv(){
+  const kids=data.kids||[];
+  const baseHeaders=[
+    'ISBN','Title','Author','Lookup Status','AR Level','AR Points','Interest Level',
+    'Quiz Number','Word Count','First Scanned','Last Scanned','Last Checked',
+    'AR Source','Metadata Source','Scan Count'
+  ];
+  const kidHeaders=[];
+  for(const k of kids){
+    kidHeaders.push(`${k.name} - Current AR Range`);
+    kidHeaders.push(`${k.name} - Book Status`);
+  }
+  const headers=[...baseHeaders,...kidHeaders];
+  const rows=[headers];
+  const books=Object.values(data.books).sort((a,b)=>String(a.title||a.isbn).localeCompare(String(b.title||b.isbn)));
+  for(const b of books){
+    const row=[
+      b.isbn||'', b.title||'', b.author||'', b.lookupStatus||'',
+      b.atos??'', b.points??'', b.interestLevel||'', b.quizNumber||'', b.wordCount??'',
+      b.firstScannedAt||'', b.lastScannedAt||'', b.lookedUpAt||'',
+      b.arSource||'', b.metadataSource||'', b.scanCount??1
+    ];
+    for(const k of kids){
+      row.push(`${k.min??''}-${k.max??''}`);
+      row.push((b.kidState&&b.kidState[k.id])||'available');
+    }
+    rows.push(row);
+  }
+  return rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+}
+function downloadBlob(text,type,filename){
+  const blob=new Blob([text],{type});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+}
+function downloadCsvBackup(reason='manual'){
+  const csv=buildLibraryCsv();
+  const filename=`scan-ar-library_${localDateStamp()}.csv`;
+  downloadBlob(csv,'text/csv;charset=utf-8',filename);
+  const ts=now();
+  localStorage.setItem(LAST_BACKUP_KEY,ts);
+  sessionBackupDone=true;
+  renderBackupStatus();
+  return filename;
+}
+function autoBackupEnabled(){
+  return localStorage.getItem(AUTO_BACKUP_KEY)!=='0';
+}
+function maybeAutoBackup(){
+  if(!autoBackupEnabled() || sessionCapturedCount<=0 || sessionBackupDone) return false;
+  downloadCsvBackup('session');
+  return true;
+}
+function renderBackupStatus(){
+  const t=localStorage.getItem(LAST_BACKUP_KEY);
+  if($('lastBackupText')){
+    $('lastBackupText').textContent=t
+      ? `Last backup: ${new Date(t).toLocaleString()}`
+      : 'No CSV backup downloaded yet.';
+  }
+  if($('autoBackupToggle')) $('autoBackupToggle').checked=autoBackupEnabled();
+}
 
-scanBtn.addEventListener('click',startScan);stopBtn.addEventListener('click',stopScan);addIsbnBtn.addEventListener('click',()=>{if(enqueue(isbnInput.value,'manual'))isbnInput.value='';else alert('Enter a 10- or 13-character ISBN.')});isbnInput.addEventListener('keydown',e=>{if(e.key==='Enter')addIsbnBtn.click()});
-document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));[librarySearch,libraryKid,libraryStatus,librarySort].forEach(x=>x.addEventListener('input',renderLibrary));addKidBtn.addEventListener('click',addKid);newKidName.addEventListener('keydown',e=>{if(e.key==='Enter')addKid()});kidSaveBtn.addEventListener('click',saveKidEdit);kidCancelBtn.addEventListener('click',()=>{kidModal.classList.remove('open');editingKid=null});kidModal.addEventListener('click',e=>{if(e.target===kidModal){kidModal.classList.remove('open');editingKid=null}});checkBtn.addEventListener('click',checkServer);exportBtn.addEventListener('click',exportBackup);eraseBtn.addEventListener('click',()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}});
-migrateMetadata();renderAll();pumpQueue();
+function exportBackup(){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='scan-ar-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
+}
+
+$('addIsbnBtn').onclick=()=>{const ok=enqueue($('isbnInput').value,'manual');if(ok)$('isbnInput').value='';else alert('Enter a valid ISBN-10 or ISBN-13.')};
+$('isbnInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('addIsbnBtn').click()});
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+['librarySearch','libraryStatus','librarySort'].forEach(id=>$(id).addEventListener('input',renderLibrary));
+$('addKidQuickBtn').onclick=()=>openKid();
+$('editSelectedKid').onclick=()=>{if(selectedKidId)openKid(selectedKidId)};
+$('kidFilterTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{kidFilter=b.dataset.kfilter;renderKids()});
+$('kidSaveBtn').onclick=saveKid;
+$('kidCancelBtn').onclick=()=>{$('kidModal').classList.remove('open');editingKid=null};
+$('kidModal').onclick=e=>{if(e.target===$('kidModal')){$('kidModal').classList.remove('open');editingKid=null}};
+$('checkBtn').onclick=checkServer;
+$('syncNowBtn').onclick=()=>backupToServer(true);
+$('showRestoreBtn').onclick=()=>{$('restoreBox').classList.add('show');$('restoreCodeInput').focus()};
+$('cancelRestoreBtn').onclick=()=>$('restoreBox').classList.remove('show');
+$('restoreBtn').onclick=restoreFromServer;
+
+$('downloadCsvBtn').onclick=()=>downloadCsvBackup('manual');
+$('autoBackupToggle').addEventListener('change',()=>{
+  localStorage.setItem(AUTO_BACKUP_KEY,$('autoBackupToggle').checked?'1':'0');
+  renderBackupStatus();
+});
+$('exportBtn').onclick=exportBackup;
+$('eraseBtn').onclick=()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}};
+
+renderAll();pumpQueue();
 </script>
 
+<script id="v21-behavior">
+(function(){
+  const INSTALL_KEY='scan_ar_install_tip_seen_v1';
+  function isStandalone(){
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+  const tip=document.getElementById('installTip');
+  const dismiss=document.getElementById('dismissInstallTip');
+  if(tip && !isStandalone() && localStorage.getItem(INSTALL_KEY)!=='1'){
+    tip.classList.add('show');
+  }
+  if(dismiss){
+    dismiss.addEventListener('click',()=>{
+      localStorage.setItem(INSTALL_KEY,'1');
+      tip?.classList.remove('show');
+    });
+  }
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));
+  }
+})();
+</script>
 
 </body>
 </html>

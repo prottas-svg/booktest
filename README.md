@@ -1,56 +1,98 @@
-# Scan AR v1.5
+# Scan AR v2.2
 
 **Build date:** September 15, 2026
 
-## v1.5 fixes
-- Success ✓ is wired directly to barcode capture.
-- Short audible beep on capture; vibration attempted where browsers support it.
-- Roomier scan box for long and squarer ISBN barcodes.
-- Book title is parsed correctly and shown prominently; author is secondary.
-- Existing successful books are refreshed once to repair old title metadata.
+## Library protection
+This release separates app versions from user data and adds automatic online backups.
 
-# Scan AR v1.4
+### Storage layers
+1. **On-device app data** — uses one permanent storage namespace across releases.
+2. **Railway server backup** — books, kids, AR ranges, range histories, and per-child statuses are backed up automatically under a private recovery code.
+3. **Phone files** — CSV session backups and full JSON exports remain available.
+
+### Important Railway setup
+For online backups to survive Railway redeployments, add a **persistent Railway Volume** to this service and mount it at:
+
+`/data`
+
+The app writes server backups to `/data/backups`.
+
+Without a persistent volume, the app still keeps on-device data and downloadable CSV/JSON backups, but online server backups may be lost when Railway replaces the container.
+
+### Recovery
+Settings displays a private recovery code such as `ABCD-EFGH-JKLM-NPQR`. On a new device, choose **Restore with code** and enter that code to recover the full library.
+
+# Scan AR v2.1
 
 **Build date:** September 15, 2026
 
-## v1.4 UX changes
-- Clearer scan target with instruction to move closer.
-- More square-friendly scan guide on phones.
-- Large checkmark + haptic feedback when a barcode is captured.
-- Visible scan queue summary.
-- Child actions are explicit and reversible; no swipe deletes from the household library.
-- Version/date remain visible on the main screen.
+## Installable web app
+- Adds a web app manifest and Scan AR Home Screen icons.
+- When added to an iPhone Home Screen, Scan AR opens in standalone app mode.
+- A one-time message explains: Safari → Share → Add to Home Screen.
+- Service worker caches the app shell; AR lookups still require an internet connection.
 
-# Scan AR v1.3
+# Scan AR v2.0
 
 **Build date:** September 15, 2026
 
-# Scan AR v1.2 — personal prototype
+## v2.0 backup protection
+- Auto-backup is on by default.
+- After a scan session with one or more captured books, turning the camera off or leaving Scan attempts to download a timestamped CSV to the device.
+- CSV contains the household library, lookup/AR fields, scan timestamps, and per-child current range/status columns.
+- Settings includes **Download CSV now**.
+- Full JSON export remains available because it is the safest format for restoring child profiles, range histories, and complete app state.
+- The app shows the last successful backup time.
 
-## What changed
+### Mobile-browser caveat
+iOS/browser download behavior can vary. Auto-backup is attached to explicit user actions (turning the camera off or tapping another tab) to maximize the chance Safari permits the file download. Use the visible manual CSV button if a browser suppresses an automatic download.
 
-- Rapid continuous barcode scanning: scanning never waits for AR lookup.
-- Background lookup queue with two concurrent lookups.
-- Persistent household library and scan history in the browser.
-- Failed/no-AR scans are retained but hidden by default; they can be filtered and retried.
-- Unlimited child profiles.
-- Editable current AR range for each child, with prior ranges retained in profile history.
-- Per-child book state: Available, Read, Hidden.
-- A book marked Read/Hidden for one child remains in the household library and can still be available to another child.
-- Child-filtered library shows only currently appropriate Available books and totals their AR points.
-- Swipe left on a child's book = Read. Swipe right = Hidden. Buttons are also provided.
-- Local JSON backup export.
+# Scan AR v1.9
 
-## Deploy/update on Railway
+**Build date:** September 15, 2026
 
-Replace the files in your existing GitHub repository with the contents of this folder and commit/push. Railway should automatically redeploy the service from GitHub.
+## v1.9 visual cleanup
+This release intentionally adds no new functionality. It simplifies the interface into a calmer, minimalist utility: warm off-white background, muted green accent, fewer cards, less explanatory copy, more whitespace, cleaner typography, and more restrained library/kid status styling.
 
-After deployment, open the existing Railway URL. Your previous local browser data from the older app is not migrated automatically because v1.2 uses a new data model.
+# Scan AR v1.8
 
-## Data model
+**Build date:** September 15, 2026
 
-Book records are household-level. Child profiles only store current reading range and child-specific states, so changing a child's range later never deletes or duplicates books.
+## v1.8 change
+After the very first book is captured, the Scan page shows a one-time prompt:
+**Keep scanning** or **View Library**. It explains that AR lookups continue in the background, so users do not need to wait between books. Once either option is chosen, the prompt does not appear again.
 
-## Important
+# Scan AR v1.7
 
-This is the personal-use prototype using the AR Bookfinder lookup automation. Before public App Store distribution, replace that lookup source with a licensed feed.
+**Build date:** September 15, 2026
+
+## Focus of v1.7
+
+- Camera is off by default and only runs on the Scan page.
+- Rapid scanning never waits for AR lookups.
+- Duplicate scans clearly say **Already in library**.
+- Exact ISBN AR match only; no fuzzy title/edition substitution.
+- Separate states for:
+  - AR match found
+  - No AR quiz found for this ISBN
+  - Technical lookup error
+  - Pending lookup
+- Books without AR data still try to show title and author from Open Library.
+- Household library is separate from child-specific status.
+- Each child has an editable AR range with range history.
+- Child filters: In range, Below, Above, Read, Not interested, All AR books.
+- Child actions are reversible and never delete the household book.
+- AR source and last-checked date are displayed.
+
+## Deploy
+
+Upload the contents of this `scan-ar-proxy` folder to the root of your GitHub repository. Railway should redeploy automatically.
+
+## Accuracy model
+
+AR data is accepted only when:
+1. a valid ISBN checksum was scanned/entered,
+2. AR Bookfinder returns AR fields, and
+3. the exact scanned ISBN can be verified on the returned result/detail page.
+
+A 404 from the app means **No AR quiz found for this ISBN**, not that every edition of that title lacks an AR quiz. Technical/parser problems return a distinct lookup error.
