@@ -1,6 +1,6 @@
 {
-  "name": "scan-ar-personal",
-  "version": "2.6.0",
+  "name": "snapar",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,5 +9,6 @@
   "dependencies": {
     "express": "^4.21.2",
     "playwright": "1.55.0"
-  }
+  },
+  "description": "SnapAR \u2014 fast AR book scanning and family library management"
 }

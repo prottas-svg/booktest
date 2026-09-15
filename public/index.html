@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#F8F9F7">
-<title>Scan AR</title>
+<title>SnapAR</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root{
@@ -372,7 +372,7 @@ nav button.active{
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Scan AR">
+<meta name="apple-mobile-web-app-title" content="SnapAR">
 <meta name="mobile-web-app-capable" content="yes">
 
 
@@ -461,12 +461,13 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 </head>
 <body>
 <main>
-<h1>Scan AR</h1>
-<div class="build"><span>v2.6</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+<h1>SnapAR</h1>
+<div class="small" style="margin-top:4px">Scan, organize, and manage AR books.</div>
+<div class="build"><span>v2.7</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
-  <div class="install-tip-copy"><div class="install-tip-title">Add Scan AR to your Home Screen</div>
+  <div class="install-tip-copy"><div class="install-tip-title">Add SnapAR to your Home Screen</div>
   <div class="small">On iPhone, tap Share → Add to Home Screen.</div></div>
   <button id="dismissInstallTip" class="icon-button" aria-label="Dismiss">×</button>
 </div>
@@ -588,7 +589,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
   <div class="card">
     
 <div class="section-title">Library protection</div>
-<div class="small">Your library stays on this device and is also backed up privately to your Scan AR server.</div>
+<div class="small">Your library stays on this device and is also backed up privately to your SnapAR server.</div>
 <div class="protection-box">
   <div id="serverProtectionStatus" class="protection-status"><span class="dot"></span><span>Preparing backup…</span></div>
   <div class="small" style="margin-top:7px">Recovery code</div>
@@ -1230,7 +1231,7 @@ function downloadBlob(text,type,filename){
 }
 function downloadCsvBackup(reason='manual'){
   const csv=buildLibraryCsv();
-  const filename=`scan-ar-library_${localDateStamp()}.csv`;
+  const filename=`snapar-library_${localDateStamp()}.csv`;
   downloadBlob(csv,'text/csv;charset=utf-8',filename);
   const ts=now();
   localStorage.setItem(LAST_BACKUP_KEY,ts);
@@ -1258,7 +1259,7 @@ function renderBackupStatus(){
 
 function exportBackup(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='scan-ar-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob);a.download='snapar-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
 }
 
 $('addIsbnBtn').onclick=()=>{const ok=enqueue($('isbnInput').value,'manual');if(ok)$('isbnInput').value='';else alert('Enter a valid ISBN-10 or ISBN-13.')};

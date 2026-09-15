@@ -1,8 +1,12 @@
 {
-  "version": "v2.6",
+  "version": "v2.7",
   "build_date": "2026-09-15",
-  "label": "v2.6 \u2022 September 15, 2026",
+  "label": "v2.7 \u2022 September 15, 2026",
   "changes": [
+    "Rebranded the app from Scan AR to SnapAR",
+    "Updated visible app title, browser/PWA name, install experience, metadata, and backup filenames",
+    "Preserved all existing library, kid, recovery, and backup storage keys so current users keep their data",
+    "No changes to AR lookup logic, Railway /data storage, recovery codes, or child/book schema",
     "Adds strict title+author fallback when Bookfinder has no exact ISBN result",
     "Fallback only accepts one clear title-and-author match; ambiguous matches remain unresolved",
     "Successful fallback results are labeled as matched by title/author rather than exact ISBN",
@@ -63,5 +67,6 @@
     "Child filters for in-range, below, above, read, not interested, all",
     "Undoable child-specific Read / Not interested states",
     "AR provenance and last-checked date shown"
-  ]
+  ],
+  "productName": "SnapAR"
 }

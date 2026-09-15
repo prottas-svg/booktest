@@ -1,7 +1,7 @@
 {
-  "name": "Scan AR",
-  "short_name": "Scan AR",
-  "description": "Scan children's books and look up Accelerated Reader information.",
+  "name": "SnapAR",
+  "short_name": "SnapAR",
+  "description": "Scan, organize, and manage Accelerated Reader books for your family.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

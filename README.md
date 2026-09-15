@@ -1,11 +1,11 @@
-# Scan AR v2.3
+# SnapAR v2.7
 
 **Build date:** September 15, 2026
 
 ## UI polish release
 This release modernizes the interface without changing the storage or lookup model.
 
-# Scan AR v2.2
+# SnapAR v2.2
 
 **Build date:** September 15, 2026
 
@@ -29,17 +29,17 @@ Without a persistent volume, the app still keeps on-device data and downloadable
 ### Recovery
 Settings displays a private recovery code such as `ABCD-EFGH-JKLM-NPQR`. On a new device, choose **Restore with code** and enter that code to recover the full library.
 
-# Scan AR v2.1
+# SnapAR v2.1
 
 **Build date:** September 15, 2026
 
 ## Installable web app
-- Adds a web app manifest and Scan AR Home Screen icons.
-- When added to an iPhone Home Screen, Scan AR opens in standalone app mode.
+- Adds a web app manifest and SnapAR Home Screen icons.
+- When added to an iPhone Home Screen, SnapAR opens in standalone app mode.
 - A one-time message explains: Safari → Share → Add to Home Screen.
 - Service worker caches the app shell; AR lookups still require an internet connection.
 
-# Scan AR v2.0
+# SnapAR v2.0
 
 **Build date:** September 15, 2026
 
@@ -54,14 +54,14 @@ Settings displays a private recovery code such as `ABCD-EFGH-JKLM-NPQR`. On a ne
 ### Mobile-browser caveat
 iOS/browser download behavior can vary. Auto-backup is attached to explicit user actions (turning the camera off or tapping another tab) to maximize the chance Safari permits the file download. Use the visible manual CSV button if a browser suppresses an automatic download.
 
-# Scan AR v1.9
+# SnapAR v1.9
 
 **Build date:** September 15, 2026
 
 ## v1.9 visual cleanup
 This release intentionally adds no new functionality. It simplifies the interface into a calmer, minimalist utility: warm off-white background, muted green accent, fewer cards, less explanatory copy, more whitespace, cleaner typography, and more restrained library/kid status styling.
 
-# Scan AR v1.8
+# SnapAR v1.8
 
 **Build date:** September 15, 2026
 
@@ -69,7 +69,7 @@ This release intentionally adds no new functionality. It simplifies the interfac
 After the very first book is captured, the Scan page shows a one-time prompt:
 **Keep scanning** or **View Library**. It explains that AR lookups continue in the background, so users do not need to wait between books. Once either option is chosen, the prompt does not appear again.
 
-# Scan AR v1.7
+# SnapAR v1.7
 
 **Build date:** September 15, 2026
 

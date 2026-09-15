@@ -1,5 +1,5 @@
 
-const CACHE='scan-ar-shell-v2.6';
+const CACHE='snapar-shell-v2.7';
 const SHELL=['/','/manifest.webmanifest','/icons/icon-192.png','/icons/icon-512.png','/icons/icon-180.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));
