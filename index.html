@@ -462,7 +462,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <body>
 <main>
 <h1>Scan AR</h1>
-<div class="build"><span>v2.3</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+<div class="build"><span>v2.4</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -871,36 +871,66 @@ function pumpQueue(){
   }
 }
 async function lookupBook(book,refresh=false){
-  activeLookups++;book.lookupStatus='pending';book.error=null;persist();renderAll();
+  activeLookups++;
+  book.lookupStatus='pending';
+  book.error=null;
+  persist();
+  renderAll();
   try{
     const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(refresh?'?refresh=1':''));
     const j=await r.json().catch(()=>({}));
     if(r.ok){
       Object.assign(book,{
-        lookupStatus:'found',title:j.title||book.title||null,author:j.author||book.author||null,
-        atos:j.atos,points:j.points,interestLevel:j.interestLevel,quizNumber:j.quizNumber,wordCount:j.wordCount,
-        arSource:'AR Bookfinder',metadataSource:j.metadataSource||'AR Bookfinder',lookedUpAt:j.lookedUpAt||now(),error:null
+        lookupStatus:'found',
+        title:j.title||book.title||null,
+        author:j.author||book.author||null,
+        atos:j.atos,
+        points:j.points,
+        interestLevel:j.interestLevel,
+        quizNumber:j.quizNumber,
+        wordCount:j.wordCount,
+        arSource:'AR Bookfinder',
+        metadataSource:j.metadataSource||'AR Bookfinder',
+        lookedUpAt:j.lookedUpAt||now(),
+        error:null
       });
       setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
-        lookupStatus:'no_ar',title:j.title||book.title||null,author:j.author||book.author||null,
-        metadataSource:j.metadataSource||'Open Library',lookedUpAt:j.lookedUpAt||now(),error:null
+        lookupStatus:'no_ar',
+        title:j.title||book.title||null,
+        author:j.author||book.author||null,
+        metadataSource:j.metadataSource||'Open Library',
+        lookedUpAt:j.lookedUpAt||now(),
+        error:null
       });
       setOutcome('noar',bookTitle(book),book.author,'The barcode was read correctly. No exact AR result was found for this ISBN.');
     }else{
-      throw new Error(j.error||'Lookup failed');
+      // Preserve normal metadata on technical AR failures when backend provides it.
+      if(j.title) book.title=j.title;
+      if(j.author) book.author=j.author;
+      if(j.metadataSource) book.metadataSource=j.metadataSource;
+      const err=new Error(j.error||'Lookup failed');
+      err.detail=j.detail||j.code||'';
+      throw err;
     }
   }catch(e){
-    book.lookupStatus='error';book.error=e.message||'Lookup failed';book.lookedUpAt=now();
-    setOutcome('error',bookTitle(book),book.author,'This is a lookup problem, not a “no AR quiz” result.');
+    book.lookupStatus='error';
+    book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
+    book.lookedUpAt=now();
+    setOutcome('error',bookTitle(book),book.author,book.error);
   }finally{
-    activeLookups--;persist();
+    activeLookups--;
+    persist();
+    renderAll();
+    pumpQueue();
+  }
+}
 $('keepScanningBtn').onclick=()=>{
   dismissFirstScanPrompt();
   if(!$('cameraToggle').checked){
     $('cameraToggle').checked=true;
-    startCamera();
+    $('cameraToggle').dispatchEvent(new Event('change'));
   }
 };
 $('viewLibraryBtn').onclick=()=>{
@@ -908,12 +938,6 @@ $('viewLibraryBtn').onclick=()=>{
   showPage('libraryPage');
 };
 
-renderBackupStatus();
-renderProtectionStatus();
-renderAll();pumpQueue();
-setTimeout(()=>backupToServer(false),1200);
-  }
-}
 function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
 
 async function startCamera(){

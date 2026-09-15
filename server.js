@@ -245,7 +245,15 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"2.2.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"2.4.0",time:new Date().toISOString()}));
+app.get("/api/lookup-status",(_req,res)=>res.json({
+  ok:true,
+  version:"2.4.0",
+  bookfinderUrl:BOOKFINDER_URL,
+  browserInitialized:Boolean(browserPromise),
+  cacheEntries:cache.size
+}));
+
 app.get("/api/status",async(_req,res)=>{
   try{const b=await getBrowser();res.json({ok:true,browserConnected:b.isConnected(),cacheEntries:cache.size})}
   catch(e){res.status(503).json({ok:false,browserConnected:false,error:String(e?.message||e)})}
@@ -267,14 +275,24 @@ app.get("/api/ar/:isbn",async(req,res)=>{
         metadataSource:bib?.metadataSource||null,lookedUpAt:new Date().toISOString()
       });
     }
-    if(e.code==="ISBN_MISMATCH")return res.status(502).json({error:e.message,code:e.code});
-    if(e.code==="PARSE_CHANGED")return res.status(502).json({error:e.message,code:e.code});
-    return res.status(502).json({error:"AR Bookfinder lookup failed.",detail:String(e?.message||e)});
+    const bib=e.bib||await lookupBibliographic(isbn);
+    const fallback={
+      isbn,
+      title:bib?.title||null,
+      author:bib?.author||null,
+      cover:bib?.cover||null,
+      pages:bib?.pages||null,
+      metadataSource:bib?.metadataSource||null,
+      lookedUpAt:new Date().toISOString()
+    };
+    if(e.code==="ISBN_MISMATCH")return res.status(502).json({...fallback,error:e.message,code:e.code});
+    if(e.code==="PARSE_CHANGED")return res.status(502).json({...fallback,error:e.message,code:e.code});
+    return res.status(502).json({...fallback,error:"AR Bookfinder lookup failed.",detail:String(e?.message||e)});
   }
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`Scan AR v2.2.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`Scan AR v2.4.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

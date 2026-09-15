@@ -1,8 +1,14 @@
 {
-  "version": "v2.3",
+  "version": "v2.4",
   "build_date": "2026-09-15",
-  "label": "v2.3 \u2022 September 15, 2026",
+  "label": "v2.4 \u2022 September 15, 2026",
   "changes": [
+    "Hotfix: repaired lookup completion code that was incorrectly nested in lookupBook()",
+    "Lookup queue now always decrements, re-renders, and advances after each result",
+    "Technical AR lookup errors now preserve ordinary title/author metadata when available",
+    "Lookup error text now exposes the useful server error instead of hiding it",
+    "Added lightweight /api/lookup-status diagnostics endpoint",
+    "No changes to library storage key, kid data schema, recovery codes, or /data backups",
     "UI polish: modern near-white palette replaces beige background",
     "New icon-based floating mobile navigation",
     "Redesigned camera-off state with one clear Start scanning action",
