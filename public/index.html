@@ -462,7 +462,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <body>
 <main>
 <h1>Scan AR</h1>
-<div class="build"><span>v2.4</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+<div class="build"><span>v2.6</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -890,11 +890,12 @@ async function lookupBook(book,refresh=false){
         quizNumber:j.quizNumber,
         wordCount:j.wordCount,
         arSource:'AR Bookfinder',
+        matchBasis:j.matchBasis||'isbn',
         metadataSource:j.metadataSource||'AR Bookfinder',
         lookedUpAt:j.lookedUpAt||now(),
         error:null
       });
-      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points`);
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · matched by title/author':''}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
         lookupStatus:'no_ar',

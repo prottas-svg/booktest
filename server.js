@@ -141,9 +141,161 @@ async function submitSearch(page,input) {
   throw new Error("Could not submit the AR Bookfinder search form.");
 }
 
-function pageContainsExactISBN(text,isbn) {
-  const compact=String(text).replace(/[^0-9Xx]/g,"").toUpperCase();
-  return compact.includes(isbn);
+function isbn13To10(isbn13){
+  const n=normalizeISBN(isbn13);
+  if(!/^978\d{10}$/.test(n)) return null;
+  const core=n.slice(3,12);
+  let sum=0;
+  for(let i=0;i<9;i++) sum+=Number(core[i])*(10-i);
+  const check=(11-(sum%11))%11;
+  return core+(check===10?"X":String(check));
+}
+function equivalentISBNs(isbn){
+  const n=normalizeISBN(isbn);
+  const out=new Set([n]);
+  const isbn10=isbn13To10(n);
+  if(isbn10) out.add(isbn10);
+  return [...out];
+}
+function textContainsISBN(text,isbn){
+  const raw=String(text||"").toUpperCase();
+  // Compare normalized digit/X runs rather than compacting the entire page,
+  // which can accidentally join unrelated numbers together.
+  const tokens=(raw.match(/[0-9X][0-9X\-\s]{8,20}[0-9X]/g)||[])
+    .map(normalizeISBN)
+    .filter(v=>v.length===10||v.length===13);
+  return equivalentISBNs(isbn).some(candidate=>tokens.includes(candidate));
+}
+
+function normalizeTitleForMatch(s=""){
+  return String(s)
+    .toLowerCase()
+    .replace(/\([^)]*\)/g," ")
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\b(a|an|the)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+function normalizeAuthorForMatch(s=""){
+  return String(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+function titleAuthorMatch(searchTitle,searchAuthor,resultText){
+  const rt=normalizeTitleForMatch(resultText);
+  const ra=normalizeAuthorForMatch(resultText);
+  const t=normalizeTitleForMatch(searchTitle);
+  const a=normalizeAuthorForMatch(searchAuthor);
+  if(!t || !a) return false;
+  const titleOk = rt.includes(t) || t.includes(rt);
+  const authorTokens=a.split(" ").filter(Boolean);
+  const authorOk = authorTokens.length
+    ? authorTokens.every(tok=>ra.includes(tok))
+    : false;
+  return titleOk && authorOk;
+}
+async function searchBookfinderByTitleAuthor(page,title,author){
+  // Reuse the same Bookfinder page but search by title first.
+  // The public form may expose different inputs depending on layout, so try common selectors.
+  const titleSelectors=[
+    'input[name*="Title" i]',
+    'input[id*="Title" i]',
+    'input[placeholder*="title" i]'
+  ];
+  let titleInput=null;
+  for(const sel of titleSelectors){
+    const loc=page.locator(sel).first();
+    if(await loc.count()){
+      titleInput=loc;
+      break;
+    }
+  }
+  if(!titleInput) return null;
+
+  await titleInput.fill(title);
+  // Fill author too when present, but do not require it because Bookfinder layouts vary.
+  for(const sel of ['input[name*="Author" i]','input[id*="Author" i]','input[placeholder*="author" i]']){
+    const loc=page.locator(sel).first();
+    if(await loc.count()){
+      await loc.fill(author||"");
+      break;
+    }
+  }
+
+  const submitters=[
+    'input[type="submit"]',
+    'button[type="submit"]',
+    'button:has-text("Search")',
+    'input[value*="Search" i]'
+  ];
+  let submitted=false;
+  for(const sel of submitters){
+    const loc=page.locator(sel).first();
+    if(await loc.count()){
+      await loc.click();
+      submitted=true;
+      break;
+    }
+  }
+  if(!submitted) return null;
+
+  await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+  await page.waitForTimeout(500);
+  const bodyText=await page.locator("body").innerText();
+
+  const links=page.locator('a[href*="bookdetail.aspx" i]');
+  const count=await links.count();
+  const matches=[];
+  for(let i=0;i<count;i++){
+    const link=links.nth(i);
+    let rowText="";
+    for(const xpath of ['xpath=ancestor::tr[1]','xpath=ancestor::li[1]','xpath=ancestor::div[1]','xpath=ancestor::div[2]']){
+      try{
+        const anc=link.locator(xpath);
+        if(await anc.count()){
+          rowText=await anc.innerText().catch(()=>"");
+          if(titleAuthorMatch(title,author,rowText)) break;
+        }
+      }catch{}
+    }
+    if(titleAuthorMatch(title,author,rowText)) matches.push({link,rowText});
+  }
+
+  // Only accept a single clear title+author match.
+  if(matches.length!==1) return null;
+
+  await matches[0].link.click();
+  await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+  await page.waitForTimeout(500);
+  const detailText=await page.locator("body").innerText();
+  if(!/AR Quiz No\./i.test(detailText)) return null;
+
+  return {
+    text:detailText,
+    pageUrl:page.url(),
+    matchBasis:"title_author"
+  };
+}
+
+async function findExactResultLink(page,isbn){
+  const links=page.locator('a[href*="bookdetail.aspx" i]');
+  const count=await links.count();
+  for(let i=0;i<count;i++){
+    const link=links.nth(i);
+    // Search a few increasingly broad ancestors because Bookfinder layouts vary.
+    for(const xpath of ['xpath=ancestor::tr[1]','xpath=ancestor::li[1]','xpath=ancestor::div[1]','xpath=ancestor::div[2]']){
+      try{
+        const anc=link.locator(xpath);
+        if(await anc.count()){
+          const t=await anc.innerText().catch(()=>"");
+          if(textContainsISBN(t,isbn)) return link;
+        }
+      }catch{}
+    }
+  }
+  return null;
 }
 
 async function performLookup(isbn,{refresh=false}={}) {
@@ -163,11 +315,57 @@ async function performLookup(isbn,{refresh=false}={}) {
     const input=await findISBNInput(page);
     await input.fill(isbn);
     await submitSearch(page,input);
-    let text=await page.locator("body").innerText();
+    let searchText=await page.locator("body").innerText();
+    let text=searchText;
 
+    const lowerSearch=searchText.toLowerCase();
+    if(/no results|no books|0 results|did not match|no matches/.test(lowerSearch)){
+      const bib=await bibPromise;
+
+      // Some editions/printings are absent from Bookfinder's ISBN index even though
+      // the work has an AR quiz. Fall back to a strict title+author search.
+      if(bib?.title && bib?.author){
+        try{
+          // Return to advanced search before the fallback query.
+          await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
+          const fallback=await searchBookfinderByTitleAuthor(page,bib.title,bib.author);
+          if(fallback){
+            const ar=parseAR(fallback.text,isbn,fallback.pageUrl);
+            return {
+              ...ar,
+              title:bib.title,
+              author:bib.author,
+              cover:bib.cover||null,
+              pages:bib.pages||null,
+              metadataSource:bib.metadataSource||"Open Library",
+              arSource:"AR Bookfinder",
+              matchBasis:"title_author",
+              lookedUpAt:new Date().toISOString()
+            };
+          }
+        }catch(fallbackErr){
+          console.warn("[title-author fallback]",fallbackErr?.message||fallbackErr);
+        }
+      }
+
+      const e=new Error("No Accelerated Reader quiz was found for that ISBN or as a unique title/author match.");
+      e.code="NOT_FOUND";e.bib=bib;throw e;
+    }
+
+    // Verify the ISBN on the SEARCH RESULTS page before navigating away.
+    // Bookfinder's detail pages often omit ISBN entirely, which caused valid books
+    // to be mislabeled ISBN_MISMATCH in v2.4.
+    const verifiedOnSearch=textContainsISBN(searchText,isbn);
+    const exactLink=await findExactResultLink(page,isbn);
     const detailLinks=page.locator('a[href*="bookdetail.aspx" i]');
     const count=await detailLinks.count();
-    if(count===1){
+
+    if(exactLink){
+      await exactLink.click();
+      await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+      await page.waitForTimeout(500);
+      text=await page.locator("body").innerText();
+    }else if(count===1 && verifiedOnSearch){
       await detailLinks.first().click();
       await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
       await page.waitForTimeout(500);
@@ -175,24 +373,26 @@ async function performLookup(isbn,{refresh=false}={}) {
     }
 
     if(!/AR Quiz No\./i.test(text)){
-      const lower=text.toLowerCase();
-      if(/no results|no books|0 results|did not match|no matches/.test(lower)){
-        const bib=await bibPromise;
-        const e=new Error("No Accelerated Reader quiz was found for that ISBN.");
-        e.code="NOT_FOUND";e.bib=bib;throw e;
+      // Some search-result layouts contain the AR fields directly.
+      // If navigation removed them, fall back to the verified search text.
+      if(verifiedOnSearch && /AR Quiz No\./i.test(searchText)) {
+        text=searchText;
+      } else {
+        const e=new Error("Bookfinder returned a page, but its AR fields could not be recognized.");
+        e.code="PARSE_CHANGED";throw e;
       }
-      const e=new Error("Bookfinder returned a page, but its AR fields could not be recognized.");
-      e.code="PARSE_CHANGED";throw e;
     }
 
-    // Accuracy guard: never accept AR values unless the exact scanned ISBN is visibly
-    // associated with the returned result/detail page.
-    if(!pageContainsExactISBN(text,isbn)){
-      const e=new Error("Bookfinder returned a result, but the exact scanned ISBN could not be verified on the result page.");
+    // Accuracy guard: accept the exact ISBN (or its mathematically equivalent ISBN-10)
+    // if verified either on the search result containing the AR record or on detail.
+    const verified=verifiedOnSearch || textContainsISBN(text,isbn);
+    if(!verified){
+      const e=new Error("Bookfinder returned AR data, but no result could be tied to the scanned ISBN.");
       e.code="ISBN_MISMATCH";throw e;
     }
 
     const ar=parseAR(text,isbn,page.url());
+    ar.matchBasis="isbn";
     const bib=await bibPromise;
     const value={
       ...ar,
@@ -245,10 +445,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"2.4.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"2.6.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"2.4.0",
+  version:"2.6.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -292,7 +492,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`Scan AR v2.4.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`Scan AR v2.6.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
