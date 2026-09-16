@@ -1,8 +1,13 @@
 {
-  "version": "v3.2",
+  "version": "v3.3",
   "build_date": "2026-09-15",
-  "label": "v3.2 \u2022 September 16, 2026",
+  "label": "v3.3 \u2022 September 16, 2026",
   "changes": [
+    "Diagnostic release for AR Bookfinder ISBN search",
+    "ISBN entry is typed into the detected ISBN field before submitting",
+    "Captures searched ISBN, field value, submit method, result-link count, ISBNs seen on page, and whether AR fields appeared",
+    "Returns diagnostics with failed lookups so the next fix can be based on actual Bookfinder behavior",
+    "No changes to library storage, kid profiles, recovery codes, or Railway /data backups",
     "Fixes the visible build date to September 16, 2026",
     "Adds same-work edition fallback before title/author fallback",
     "Uses Open Library work/edition records to discover sibling ISBNs for the scanned book",

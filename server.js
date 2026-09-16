@@ -93,7 +93,7 @@ function parseAR(text,isbn,finalUrl) {
   const wordRaw=firstMatch(normalized,[/Word Count:?\s*([0-9,]+)/i]);
   if(!quizNumber || atosRaw==null) {
     const e=new Error("Bookfinder returned a result, but required AR fields could not be recognized.");
-    e.code="PARSE_CHANGED";throw e;
+    e.code="PARSE_CHANGED";e.diagnostics=isbnDiagnostics;throw e;
   }
   return {
     isbn,quizNumber,atos:Number(atosRaw),points:pointsRaw?Number(pointsRaw):null,
@@ -239,6 +239,11 @@ async function searchBookfinderExactISBN(page,isbn){
   await page.waitForTimeout(500);
 
   let searchText=await page.locator("body").innerText();
+    const isbnDiagnostics=await diagnosticSnapshot(page,{
+      searchedISBN:isbn,
+      submitMeta:typeof submitMeta!=="undefined"?submitMeta:null,
+      fieldValue:await input.inputValue().catch(()=>"")
+    });
   const lower=searchText.toLowerCase();
   if(/no results|no books|0 results|did not match|no matches/.test(lower)) return null;
 
@@ -426,8 +431,11 @@ async function performLookup(isbn,{refresh=false}={}) {
     const page=await context.newPage();
     await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:25000});
     const input=await findISBNInput(page);
-    await input.fill(isbn);
-    await submitSearch(page,input);
+    await input.click({clickCount:3}).catch(()=>{});
+    await input.fill("");
+    await input.type(isbn,{delay:35});
+    const submitMeta=await submitSearch(page,input);
+    await page.waitForTimeout(700);
     let searchText=await page.locator("body").innerText();
     let text=searchText;
 
@@ -487,7 +495,7 @@ async function performLookup(isbn,{refresh=false}={}) {
       }
 
       const e=new Error("No AR result was found by ISBN, and the title search did not produce one unique matching title/author result.");
-      e.code="NOT_FOUND";e.bib=bib;throw e;
+      e.code="NOT_FOUND";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
     }
 
     // Verify the ISBN on the SEARCH RESULTS page before navigating away.
@@ -538,7 +546,7 @@ async function performLookup(isbn,{refresh=false}={}) {
         matchBasis="title_author";
       }else{
         const e=new Error("Bookfinder returned AR data, but the result could not be tied to this book by ISBN or a clear title/author match.");
-        e.code="ISBN_MISMATCH";e.bib=bib;throw e;
+        e.code="ISBN_MISMATCH";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
       }
     }
 
@@ -595,10 +603,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.2.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.3.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.2.0",
+  version:"3.3.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -620,7 +628,8 @@ app.get("/api/ar/:isbn",async(req,res)=>{
     if(e.code==="NOT_FOUND"){
       const bib=e.bib||await lookupBibliographic(isbn);
       return res.status(404).json({
-        error:e.message,reason:"no_ar_record",isbn,
+        error:e.message,reason:"no_ar_record",
+        diagnostics:e?.diagnostics||null,isbn,
         title:bib?.title||null,author:bib?.author||null,cover:bib?.cover||null,pages:bib?.pages||null,
         metadataSource:bib?.metadataSource||null,lookedUpAt:new Date().toISOString()
       });
@@ -635,9 +644,10 @@ app.get("/api/ar/:isbn",async(req,res)=>{
       metadataSource:bib?.metadataSource||null,
       lookedUpAt:new Date().toISOString()
     };
-    if(e.code==="ISBN_MISMATCH")return res.status(502).json({...fallback,error:e.message,code:e.code});
-    if(e.code==="PARSE_CHANGED")return res.status(502).json({...fallback,error:e.message,code:e.code});
-    return res.status(502).json({...fallback,error:"AR Bookfinder lookup failed.",detail:String(e?.message||e)});
+    const diagnostics=e?.diagnostics||null;
+    if(e.code==="ISBN_MISMATCH")return res.status(502).json({...fallback,error:e.message,code:e.code,diagnostics});
+    if(e.code==="PARSE_CHANGED")return res.status(502).json({...fallback,error:e.message,code:e.code,diagnostics});
+    return res.status(502).json({...fallback,error:"AR Bookfinder lookup failed.",detail:String(e?.message||e),diagnostics});
   }
 });
 
