@@ -1,8 +1,11 @@
 {
-  "version": "v3.9",
+  "version": "v4.0",
   "build_date": "2026-09-15",
-  "label": "v3.9 \u2022 September 16, 2026",
+  "label": "v4.0 \u2022 September 16, 2026",
   "changes": [
+    "Tests the remaining Cora discrepancy by explicitly establishing a Parent Bookfinder session before ISBN search",
+    "Adds Bookfinder role to diagnostics so manual-vs-automated session differences are visible",
+    "Keeps exact ISBN search, title/author parsing, unique-result handling, and all user data/backups unchanged",
     "Fixes Bookfinder submission to click the actual Search button in the ISBN field's form instead of pressing Enter first",
     "This targets the Cora discrepancy where manual ISBN search works but automation returned No results found",
     "Parses title and author directly from Bookfinder result rows when Open Library metadata is unavailable",

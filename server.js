@@ -142,6 +142,66 @@ async function findISBNInput(page) {
   return el;
 }
 
+
+async function ensureParentBookfinderSession(page){
+  // Match a parent's normal Bookfinder session instead of relying on the
+  // Student state produced by direct Advanced Search navigation.
+  try{
+    const redirect=encodeURIComponent("/advanced.aspx?client=PBQN");
+    await page.goto(`https://www.arbookfind.com/UserType.aspx?RedirectURL=${redirect}`,{
+      waitUntil:"domcontentloaded",timeout:15000
+    });
+
+    let selected=false;
+    for(const sel of [
+      'input[value="Parent" i]',
+      'label:has-text("Parent")',
+      'text=Parent'
+    ]){
+      const loc=page.locator(sel).first();
+      if(await loc.count() && await loc.isVisible().catch(()=>false)){
+        await loc.click().catch(()=>{});
+        selected=true;
+        break;
+      }
+    }
+
+    if(selected){
+      await page.waitForTimeout(250);
+      if(/UserType\.aspx/i.test(page.url())){
+        for(const sel of [
+          'input[type="submit"]',
+          'button[type="submit"]',
+          'button:has-text("Continue")',
+          'input[value*="Continue" i]'
+        ]){
+          const btn=page.locator(sel).first();
+          if(await btn.count() && await btn.isVisible().catch(()=>false)){
+            await Promise.all([
+              page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
+              btn.click()
+            ]);
+            break;
+          }
+        }
+      }
+    }
+
+    if(!/advanced\.aspx/i.test(page.url())){
+      await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
+    }
+
+    const text=await page.locator("body").innerText().catch(()=>"");
+    if(/\bParent\b/i.test(text) && !/\bStudent\b/i.test(text)) return "parent";
+    if(/\bStudent\b/i.test(text)) return "student";
+    return "unknown";
+  }catch(e){
+    console.warn("[parent session]",e?.message||e);
+    await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000}).catch(()=>{});
+    return "unknown";
+  }
+}
+
 async function submitSearch(page,input) {
   // Important: Bookfinder's Advanced Search form has multiple controls.
   // Pressing Enter can trigger a different/default action. Mimic the manual flow:
@@ -532,6 +592,7 @@ async function performLookup(isbn,{refresh=false}={}) {
   try{
     const page=await context.newPage();
     await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:25000});
+    const bookfinderRole=await ensureParentBookfinderSession(page);
     const input=await findISBNInput(page);
     await input.click({clickCount:3}).catch(()=>{});
     await input.fill("");
@@ -543,6 +604,7 @@ async function performLookup(isbn,{refresh=false}={}) {
       searchedISBN:isbn,
       submitMeta,
       fieldValue:await input.inputValue().catch(()=>""),
+      bookfinderRole,
       inferredIdentity:parseBookfinderIdentity(await page.locator("body").innerText().catch(()=>""))
     });
     let text=searchText;
@@ -725,10 +787,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.9.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.0.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.9.0",
+  version:"4.0.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -774,7 +836,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.9.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.0.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
