@@ -1,8 +1,12 @@
 {
-  "version": "v3.5",
+  "version": "v3.6",
   "build_date": "2026-09-15",
-  "label": "v3.5 \u2022 September 16, 2026",
+  "label": "v3.6 \u2022 September 16, 2026",
   "changes": [
+    "Shows lookup diagnostics for both no-AR and ISBN-mismatch failures",
+    "Adds Copy diagnostics button so failed lookups can be pasted back for deterministic debugging",
+    "No matching heuristics changed in this release",
+    "No changes to library storage, kid profiles, recovery codes, or Railway /data backups",
     "Fixes v3.4 ReferenceError: diagnosticSnapshot is not defined",
     "Ensures collectISBNsFromText() and diagnosticSnapshot() are defined at top level before lookup execution",
     "Keeps the existing ISBN diagnostic flow unchanged",

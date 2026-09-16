@@ -507,12 +507,34 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 }
 </style>
 
+
+<style id="v36-diagnostics-style">
+.lookup-diagnostics{
+  margin-top:10px;
+  padding:10px 11px;
+  border-radius:10px;
+  background:#f6f7f6;
+  border:1px solid var(--line);
+  font-size:12px;
+  line-height:1.45;
+  color:var(--muted);
+  word-break:break-word;
+}
+.lookup-diagnostics strong{color:var(--text);font-weight:700}
+.lookup-diagnostics button{
+  margin-top:8px;
+  padding:7px 9px;
+  min-width:auto;
+  font-size:12px;
+}
+</style>
+
 </head>
 <body>
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v3.5</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v3.6</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -979,9 +1001,10 @@ async function lookupBook(book,refresh=false){
         author:j.author||book.author||null,
         metadataSource:j.metadataSource||'Open Library',
         lookedUpAt:j.lookedUpAt||now(),
+        diagnostics:j.diagnostics||null,
         error:null
       });
-      setOutcome('noar',bookTitle(book),book.author,'The barcode was read correctly. No exact AR result was found for this ISBN.');
+      setOutcome('noar',bookTitle(book),book.author,['No AR quiz found for this ISBN.',diagnosticSummary(book)].filter(Boolean).join(' · '));
     }else{
       // Preserve normal metadata on technical AR failures when backend provides it.
       if(j.title) book.title=j.title;
@@ -1021,12 +1044,36 @@ function diagnosticSummary(book){
   const d=book?.diagnostics;
   if(!d)return '';
   const bits=[];
+  if(d.searchedISBN) bits.push(`searched=${d.searchedISBN}`);
   if(d.fieldValue) bits.push(`field=${d.fieldValue}`);
   if(d.submitMeta?.method) bits.push(`submit=${d.submitMeta.method}`);
   if(Number.isFinite(d.resultLinks)) bits.push(`links=${d.resultLinks}`);
-  if(Array.isArray(d.isbns) && d.isbns.length) bits.push(`ISBNs=${d.isbns.slice(0,4).join(',')}`);
-  if(d.containsQuiz) bits.push('AR fields seen');
+  if(Array.isArray(d.isbns) && d.isbns.length) bits.push(`ISBNs=${d.isbns.slice(0,6).join(',')}`);
+  bits.push(`AR fields=${d.containsQuiz?'yes':'no'}`);
   return bits.join(' · ');
+}
+function diagnosticPayload(book){
+  if(!book?.diagnostics)return '';
+  return JSON.stringify({
+    appVersion:'3.6',
+    isbn:book.isbn,
+    title:book.title||null,
+    author:book.author||null,
+    lookupStatus:book.lookupStatus,
+    error:book.error||null,
+    diagnostics:book.diagnostics
+  },null,2);
+}
+async function copyDiagnostics(isbn){
+  const book=data.books.find(b=>b.isbn===isbn);
+  const payload=diagnosticPayload(book);
+  if(!payload)return;
+  try{
+    await navigator.clipboard.writeText(payload);
+    showToast('Diagnostics copied');
+  }catch{
+    prompt('Copy diagnostics:',payload);
+  }
 }
 
 function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
@@ -1113,7 +1160,7 @@ function statusPills(b,kid=null){
 }
 function bookRow(b,kid=null){
   const actions=[];
-  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar')actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>`);
+  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar')actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>${book.diagnostics?`<div class="lookup-diagnostics"><strong>Lookup diagnostics</strong><br>${escapeHtml(diagnosticSummary(book))}<button class="secondary" onclick="copyDiagnostics('${book.isbn}')">Copy diagnostics</button></div>`:''}`);
   if(kid&&b.lookupStatus==='found'){
     const ks=kidState(b,kid.id);
     if(ks!=='read')actions.push(`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Mark Read</button>`);
