@@ -84,6 +84,30 @@ function firstMatch(text, regexes) {
   }
   return null;
 }
+
+function parseBookfinderIdentity(text=""){
+  const lines=String(text)
+    .replace(/\u00a0/g," ")
+    .split(/\r?\n/)
+    .map(x=>x.trim())
+    .filter(Boolean);
+
+  const qi=lines.findIndex(x=>/AR Quiz No\./i.test(x));
+  if(qi<2) return {title:null,author:null};
+
+  // In Bookfinder result rows the two non-empty lines immediately preceding
+  // "AR Quiz No." are normally Author and Title.
+  const author=lines[qi-1] || null;
+  const title=lines[qi-2] || null;
+
+  // Reject obvious table/header labels rather than inventing metadata.
+  const bad=/^(title|author|interest level|book level|relevance|rating|search results)$/i;
+  return {
+    title:title && !bad.test(title) ? title : null,
+    author:author && !bad.test(author) ? author : null
+  };
+}
+
 function parseAR(text,isbn,finalUrl) {
   const normalized=text.replace(/\u00a0/g," ").replace(/[ \t]+/g," ");
   const quizNumber=firstMatch(normalized,[/AR Quiz No\.?:?\s*#?([0-9]+)/i,/Quiz Number:?\s*#?([0-9]+)/i]);
@@ -119,28 +143,51 @@ async function findISBNInput(page) {
 }
 
 async function submitSearch(page,input) {
-  try{
-    await input.press("Enter");
-    await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(650);
-    if(/AR Quiz No\.|No Results|no books|0 results|did not match/i.test(await page.locator("body").innerText())) return;
-  }catch{}
-  const candidates=[
-    page.getByRole("button",{name:/^search$/i}).first(),
-    page.locator('input[type="submit"][value*="Search" i]').first(),
-    page.locator('button:has-text("Search")').first(),
-    page.locator('a:has-text("Search")').first()
-  ];
-  for(const c of candidates){
-    try{
-      if(await c.count()&&await c.isVisible()){
-        await c.click();await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});await page.waitForTimeout(650);return;
+  // Important: Bookfinder's Advanced Search form has multiple controls.
+  // Pressing Enter can trigger a different/default action. Mimic the manual flow:
+  // fill ISBN, then click the visible Search button in the SAME form.
+  const form=input.locator('xpath=ancestor::form[1]');
+  if(await form.count()){
+    const selectors=[
+      'input[type="submit"][value="Search" i]',
+      'button[type="submit"]:has-text("Search")',
+      'input[type="submit"][value*="Search" i]',
+      'button:has-text("Search")',
+      'input[type="image"]'
+    ];
+    for(const sel of selectors){
+      const items=form.locator(sel);
+      const count=await items.count();
+      for(let i=0;i<count;i++){
+        const btn=items.nth(i);
+        if(await btn.isVisible().catch(()=>false) && await btn.isEnabled().catch(()=>false)){
+          const meta={
+            method:"button",
+            selector:sel,
+            index:i,
+            id:await btn.getAttribute("id").catch(()=>null),
+            name:await btn.getAttribute("name").catch(()=>null),
+            value:await btn.getAttribute("value").catch(()=>null)
+          };
+          await Promise.all([
+            page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
+            btn.click()
+          ]);
+          await page.waitForTimeout(650);
+          return meta;
+        }
       }
-    }catch{}
+    }
   }
-  throw new Error("Could not submit the AR Bookfinder search form.");
-}
 
+  // Only as a last resort use Enter; diagnostics will make that visible.
+  await Promise.all([
+    page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
+    input.press("Enter")
+  ]);
+  await page.waitForTimeout(650);
+  return {method:"enter-fallback"};
+}
 function isbn13To10(isbn13){
   const n=normalizeISBN(isbn13);
   if(!/^978\d{10}$/.test(n)) return null;
@@ -495,13 +542,15 @@ async function performLookup(isbn,{refresh=false}={}) {
     const isbnDiagnostics=await diagnosticSnapshot(page,{
       searchedISBN:isbn,
       submitMeta,
-      fieldValue:await input.inputValue().catch(()=>"")
+      fieldValue:await input.inputValue().catch(()=>""),
+      inferredIdentity:parseBookfinderIdentity(await page.locator("body").innerText().catch(()=>""))
     });
     let text=searchText;
 
     const resultCount=parseBookfinderResultCount(searchText);
     const searchHasAR=/AR Quiz No\./i.test(searchText);
     const bib=await bibPromise;
+    const bfIdentity=parseBookfinderIdentity(searchText);
 
     // A manual ISBN search on Bookfinder can return exactly one valid book while the
     // result card itself omits the ISBN. The diagnostics proved this happens.
@@ -526,8 +575,8 @@ async function performLookup(isbn,{refresh=false}={}) {
               ...siblingAR,
               isbn,
               scannedISBN:isbn,
-              title:bib?.title||null,
-              author:bib?.author||null,
+              title:bib?.title||bfIdentity.title||null,
+              author:bib?.author||bfIdentity.author||null,
               cover:bib?.cover||null,
               pages:bib?.pages||null,
               metadataSource:bib?.metadataSource||"Open Library",
@@ -627,11 +676,11 @@ async function performLookup(isbn,{refresh=false}={}) {
     ar.matchBasis=matchBasis;
     const value={
       ...ar,
-      title:bib?.title||null,
-      author:bib?.author||null,
+      title:bib?.title||bfIdentity.title||null,
+      author:bib?.author||bfIdentity.author||null,
       cover:bib?.cover||null,
       pages:bib?.pages||null,
-      metadataSource:bib?.metadataSource||"AR Bookfinder"
+      metadataSource:bib?.title||bib?.author ? (bib.metadataSource||"Open Library") : "AR Bookfinder"
     };
     cache.set(isbn,{time:Date.now(),value});
     return {...value,cached:false};
@@ -676,10 +725,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.8.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.9.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.8.0",
+  version:"3.9.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -725,7 +774,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.8.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.9.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

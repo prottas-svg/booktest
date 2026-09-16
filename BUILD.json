@@ -1,8 +1,14 @@
 {
-  "version": "v3.8",
+  "version": "v3.9",
   "build_date": "2026-09-15",
-  "label": "v3.8 \u2022 September 16, 2026",
+  "label": "v3.9 \u2022 September 16, 2026",
   "changes": [
+    "Fixes Bookfinder submission to click the actual Search button in the ISBN field's form instead of pressing Enter first",
+    "This targets the Cora discrepancy where manual ISBN search works but automation returned No results found",
+    "Parses title and author directly from Bookfinder result rows when Open Library metadata is unavailable",
+    "Fixes missing book names/authors in Library for successful AR lookups",
+    "Improves AR level/points/interest spacing in book rows",
+    "Keeps lookup diagnostics and all existing user data/backups unchanged",
     "Uses v3.7 diagnostics to fix false ISBN_MISMATCH errors",
     "Accepts one AR record returned by an exact ISBN search even when Bookfinder omits the ISBN from the result text",
     "Parses Bookfinder's 'Title 1 - 1 of 1' result count instead of relying on broad no-result text matching",
