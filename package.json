@@ -1,6 +1,6 @@
 {
-  "name": "snapar",
-  "version": "2.7.0",
+  "name": "my-ar-shelf",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,5 +10,5 @@
     "express": "^4.21.2",
     "playwright": "1.55.0"
   },
-  "description": "SnapAR \u2014 fast AR book scanning and family library management"
+  "description": "My AR Shelf \u2014 fast AR book scanning and family library management"
 }

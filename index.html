@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#F8F9F7">
-<title>SnapAR</title>
+<title>My AR Shelf</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root{
@@ -372,7 +372,7 @@ nav button.active{
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="SnapAR">
+<meta name="apple-mobile-web-app-title" content="My AR Shelf">
 <meta name="mobile-web-app-capable" content="yes">
 
 
@@ -458,16 +458,65 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 @media(max-width:600px){main{padding:18px 16px 108px}h1{font-size:31px}.sub{margin-bottom:20px}.camera-off{min-height:305px;padding:30px 22px}.camera-off-title{font-size:21px}.scan-heading{align-items:flex-start}.privacy-note{font-size:11px}.queue{overflow-x:auto}.qstat{padding-right:15px;margin-right:15px}.qstat span{white-space:nowrap}nav{bottom:10px;width:calc(100% - 20px)}}
 @media(max-width:380px){.privacy-note{display:none}.camera-off{min-height:285px}.queue .qstat{min-width:auto}.qstat b{font-size:19px}}
 </style>
+
+<style id="v30-install-settings-style">
+.install-settings-row{
+  margin-top:10px;
+  padding:14px 0;
+  border-top:1px solid var(--line);
+}
+.install-settings-head{
+  display:flex;
+  align-items:center;
+  gap:11px;
+}
+.install-settings-icon{
+  width:34px;height:34px;border-radius:10px;
+  background:#eef3f1;
+  display:grid;place-items:center;
+  flex:0 0 auto;
+  color:var(--accent);
+}
+.install-settings-icon svg{width:19px;height:19px}
+.install-settings-copy{flex:1;min-width:0}
+.install-settings-title{font-weight:750;font-size:15px}
+.install-settings-sub{font-size:13px;color:var(--muted);margin-top:2px;line-height:1.35}
+.install-instructions{
+  display:none;
+  margin-top:12px;
+  padding:12px 13px;
+  border-radius:12px;
+  background:#f6f7f6;
+  font-size:13px;
+  line-height:1.5;
+}
+.install-instructions.show{display:block}
+.install-step{
+  display:flex;gap:9px;align-items:flex-start;margin-top:7px
+}
+.install-step:first-child{margin-top:0}
+.install-step-num{
+  width:20px;height:20px;border-radius:50%;
+  background:#e5ebe8;display:grid;place-items:center;
+  font-size:11px;font-weight:800;flex:0 0 auto;margin-top:1px
+}
+.installed-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:12px;font-weight:700;color:var(--accent);
+  background:#edf4f1;border-radius:999px;padding:5px 8px
+}
+</style>
+
 </head>
 <body>
 <main>
-<h1>SnapAR</h1>
-<div class="small" style="margin-top:4px">Scan, organize, and manage AR books.</div>
-<div class="build"><span>v2.7</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+<h1>My AR Shelf</h1>
+<div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
+<div class="build"><span>v3.0</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
-  <div class="install-tip-copy"><div class="install-tip-title">Add SnapAR to your Home Screen</div>
+  <div class="install-tip-copy"><div class="install-tip-title">Add My AR Shelf to your Home Screen</div>
   <div class="small">On iPhone, tap Share → Add to Home Screen.</div></div>
   <button id="dismissInstallTip" class="icon-button" aria-label="Dismiss">×</button>
 </div>
@@ -588,8 +637,32 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
   </div>
   <div class="card">
     
-<div class="section-title">Library protection</div>
-<div class="small">Your library stays on this device and is also backed up privately to your SnapAR server.</div>
+
+<div class="section-title">App</div>
+<div class="install-settings-row">
+  <div class="install-settings-head">
+    <div class="install-settings-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"></path>
+        <path d="m7.5 10.5 4.5 4.5 4.5-4.5"></path>
+        <path d="M5 20h14"></path>
+      </svg>
+    </div>
+    <div class="install-settings-copy">
+      <div class="install-settings-title">Add My AR Shelf to Home Screen</div>
+      <div id="installSettingsSub" class="install-settings-sub">Use it like a regular app from your iPhone Home Screen.</div>
+    </div>
+    <button id="installHelpBtn" class="secondary" style="min-width:auto;padding:8px 11px">How</button>
+  </div>
+  <div id="installInstructions" class="install-instructions">
+    <div class="install-step"><span class="install-step-num">1</span><span>Open My AR Shelf in <strong>Safari</strong>.</span></div>
+    <div class="install-step"><span class="install-step-num">2</span><span>Tap the <strong>Share</strong> button.</span></div>
+    <div class="install-step"><span class="install-step-num">3</span><span>Choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</span></div>
+  </div>
+</div>
+<div class="section-title" style="margin-top:20px">Library protection</div>
+
+<div class="small">Your library stays on this device and is also backed up privately to your My AR Shelf server.</div>
 <div class="protection-box">
   <div id="serverProtectionStatus" class="protection-status"><span class="dot"></span><span>Preparing backup…</span></div>
   <div class="small" style="margin-top:7px">Recovery code</div>
@@ -896,7 +969,7 @@ async function lookupBook(book,refresh=false){
         lookedUpAt:j.lookedUpAt||now(),
         error:null
       });
-      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · matched by title/author':''}`);
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':''}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
         lookupStatus:'no_ar',
@@ -1231,7 +1304,7 @@ function downloadBlob(text,type,filename){
 }
 function downloadCsvBackup(reason='manual'){
   const csv=buildLibraryCsv();
-  const filename=`snapar-library_${localDateStamp()}.csv`;
+  const filename=`my-ar-shelf-library_${localDateStamp()}.csv`;
   downloadBlob(csv,'text/csv;charset=utf-8',filename);
   const ts=now();
   localStorage.setItem(LAST_BACKUP_KEY,ts);
@@ -1259,7 +1332,7 @@ function renderBackupStatus(){
 
 function exportBackup(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='snapar-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob);a.download='my-ar-shelf-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
 }
 
 $('addIsbnBtn').onclick=()=>{const ok=enqueue($('isbnInput').value,'manual');if(ok)$('isbnInput').value='';else alert('Enter a valid ISBN-10 or ISBN-13.')};
@@ -1273,6 +1346,30 @@ $('kidSaveBtn').onclick=saveKid;
 $('kidCancelBtn').onclick=()=>{$('kidModal').classList.remove('open');editingKid=null};
 $('kidModal').onclick=e=>{if(e.target===$('kidModal')){$('kidModal').classList.remove('open');editingKid=null}};
 $('checkBtn').onclick=checkServer;
+
+function isStandaloneApp(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+}
+function renderInstallSettings(){
+  const sub=$('installSettingsSub');
+  const btn=$('installHelpBtn');
+  if(!sub||!btn)return;
+  if(isStandaloneApp()){
+    sub.innerHTML='<span class="installed-badge">✓ Added to Home Screen</span>';
+    btn.style.display='none';
+    $('installInstructions')?.classList.remove('show');
+  }else{
+    sub.textContent='Use it like a regular app from your iPhone Home Screen.';
+    btn.style.display='';
+  }
+}
+$('installHelpBtn').onclick=()=>{
+  $('installInstructions').classList.toggle('show');
+  $('installHelpBtn').textContent=$('installInstructions').classList.contains('show')?'Hide':'How';
+};
+window.matchMedia('(display-mode: standalone)').addEventListener?.('change',renderInstallSettings);
+renderInstallSettings();
+
 $('syncNowBtn').onclick=()=>backupToServer(true);
 $('showRestoreBtn').onclick=()=>{$('restoreBox').classList.add('show');$('restoreCodeInput').focus()};
 $('cancelRestoreBtn').onclick=()=>$('restoreBox').classList.remove('show');

@@ -197,88 +197,123 @@ function titleAuthorMatch(searchTitle,searchAuthor,resultText){
   return titleOk && authorOk;
 }
 async function searchBookfinderByTitleAuthor(page,title,author){
-  // Reuse the same Bookfinder page but search by title first.
-  // The public form may expose different inputs depending on layout, so try common selectors.
-  const titleSelectors=[
-    'input[name*="Title" i]',
-    'input[id*="Title" i]',
-    'input[placeholder*="title" i]'
-  ];
-  let titleInput=null;
-  for(const sel of titleSelectors){
-    const loc=page.locator(sel).first();
-    if(await loc.count()){
-      titleInput=loc;
-      break;
+  const findVisible = async (selectors, labelRegex) => {
+    for(const sel of selectors){
+      const loc=page.locator(sel).first();
+      if(await loc.count() && await loc.isVisible().catch(()=>false)) return loc;
     }
-  }
-  if(!titleInput) return null;
+    if(labelRegex){
+      const byLabel=page.getByLabel(labelRegex).first();
+      if(await byLabel.count() && await byLabel.isVisible().catch(()=>false)) return byLabel;
+    }
+    return null;
+  };
+
+  const titleInput=await findVisible(
+    ['input[name*="Title" i]','input[id*="Title" i]','input[placeholder*="title" i]'],
+    /title/i
+  );
+  if(!titleInput) throw new Error("Could not locate the Title field on AR Bookfinder.");
+
+  const authorInput=await findVisible(
+    ['input[name*="Author" i]','input[id*="Author" i]','input[placeholder*="author" i]'],
+    /author/i
+  );
 
   await titleInput.fill(title);
-  // Fill author too when present, but do not require it because Bookfinder layouts vary.
-  for(const sel of ['input[name*="Author" i]','input[id*="Author" i]','input[placeholder*="author" i]']){
-    const loc=page.locator(sel).first();
-    if(await loc.count()){
-      await loc.fill(author||"");
-      break;
-    }
-  }
+  if(authorInput) await authorInput.fill(author||"");
 
-  const submitters=[
-    'input[type="submit"]',
-    'button[type="submit"]',
-    'button:has-text("Search")',
-    'input[value*="Search" i]'
-  ];
-  let submitted=false;
-  for(const sel of submitters){
-    const loc=page.locator(sel).first();
-    if(await loc.count()){
-      await loc.click();
-      submitted=true;
-      break;
-    }
+  // Submit the exact form containing the title field. This avoids accidentally
+  // clicking one of Bookfinder's several unrelated submit inputs.
+  const submitted=await titleInput.evaluate(el=>{
+    const form=el.form || el.closest("form");
+    if(!form) return false;
+    if(typeof form.requestSubmit==="function") form.requestSubmit();
+    else form.submit();
+    return true;
+  }).catch(()=>false);
+
+  if(!submitted){
+    await titleInput.press("Enter").catch(()=>{});
   }
-  if(!submitted) return null;
 
   await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(650);
+
   const bodyText=await page.locator("body").innerText();
+  const lower=bodyText.toLowerCase();
+  if(/no results|no books|0 results|did not match|no matches/.test(lower)) return null;
 
   const links=page.locator('a[href*="bookdetail.aspx" i]');
   const count=await links.count();
   const matches=[];
+
   for(let i=0;i<count;i++){
     const link=links.nth(i);
-    let rowText="";
-    for(const xpath of ['xpath=ancestor::tr[1]','xpath=ancestor::li[1]','xpath=ancestor::div[1]','xpath=ancestor::div[2]']){
+    let bestText="";
+    for(const xpath of [
+      'xpath=ancestor::tr[1]',
+      'xpath=ancestor::li[1]',
+      'xpath=ancestor::div[1]',
+      'xpath=ancestor::div[2]',
+      'xpath=ancestor::div[3]'
+    ]){
       try{
         const anc=link.locator(xpath);
         if(await anc.count()){
-          rowText=await anc.innerText().catch(()=>"");
-          if(titleAuthorMatch(title,author,rowText)) break;
+          const t=await anc.innerText().catch(()=>"");
+          if(t.length>bestText.length) bestText=t;
+          if(titleAuthorMatch(title,author,t)){
+            bestText=t;
+            break;
+          }
         }
       }catch{}
     }
-    if(titleAuthorMatch(title,author,rowText)) matches.push({link,rowText});
+    if(titleAuthorMatch(title,author,bestText)) matches.push({link,rowText:bestText});
   }
 
-  // Only accept a single clear title+author match.
-  if(matches.length!==1) return null;
+  // If exactly one result row matches title+author, use that result.
+  if(matches.length===1){
+    const match=matches[0];
 
-  await matches[0].link.click();
-  await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-  await page.waitForTimeout(500);
-  const detailText=await page.locator("body").innerText();
-  if(!/AR Quiz No\./i.test(detailText)) return null;
+    // Some Bookfinder result layouts already expose all AR fields in the result row.
+    if(/AR Quiz No\./i.test(match.rowText) && /ATOS Book Level|Book Level|\bBL\b/i.test(match.rowText)){
+      return {
+        text:match.rowText,
+        pageUrl:page.url(),
+        matchBasis:"title_author"
+      };
+    }
 
-  return {
-    text:detailText,
-    pageUrl:page.url(),
-    matchBasis:"title_author"
-  };
+    await match.link.click();
+    await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+    await page.waitForTimeout(500);
+    const detailText=await page.locator("body").innerText();
+    if(/AR Quiz No\./i.test(detailText)){
+      return {
+        text:detailText,
+        pageUrl:page.url(),
+        matchBasis:"title_author"
+      };
+    }
+  }
+
+  // Some Bookfinder layouts render a single result without a normal detail link.
+  // Accept only when the whole page clearly contains title, author, and AR fields.
+  if(count<=1 &&
+     titleAuthorMatch(title,author,bodyText) &&
+     /AR Quiz No\./i.test(bodyText) &&
+     /ATOS Book Level|Book Level|\bBL\b/i.test(bodyText)){
+    return {
+      text:bodyText,
+      pageUrl:page.url(),
+      matchBasis:"title_author"
+    };
+  }
+
+  return null;
 }
-
 async function findExactResultLink(page,isbn){
   const links=page.locator('a[href*="bookdetail.aspx" i]');
   const count=await links.count();
@@ -348,7 +383,7 @@ async function performLookup(isbn,{refresh=false}={}) {
         }
       }
 
-      const e=new Error("No Accelerated Reader quiz was found for that ISBN or as a unique title/author match.");
+      const e=new Error("No Accelerated Reader quiz was found by ISBN, and no unique title/author match could be confirmed.");
       e.code="NOT_FOUND";e.bib=bib;throw e;
     }
 
@@ -383,17 +418,29 @@ async function performLookup(isbn,{refresh=false}={}) {
       }
     }
 
-    // Accuracy guard: accept the exact ISBN (or its mathematically equivalent ISBN-10)
-    // if verified either on the search result containing the AR record or on detail.
+    // Accuracy guard: prefer exact ISBN verification. If Bookfinder returns AR data
+    // for the work but does not expose the edition ISBN, allow a strict title+author
+    // match against bibliographic metadata. This is labelled honestly as title_author.
     const verified=verifiedOnSearch || textContainsISBN(text,isbn);
+    const bib=await bibPromise;
+    let matchBasis="isbn";
+
     if(!verified){
-      const e=new Error("Bookfinder returned AR data, but no result could be tied to the scanned ISBN.");
-      e.code="ISBN_MISMATCH";throw e;
+      const titleAuthorVerified=
+        bib?.title && bib?.author &&
+        (titleAuthorMatch(bib.title,bib.author,searchText) ||
+         titleAuthorMatch(bib.title,bib.author,text));
+
+      if(titleAuthorVerified){
+        matchBasis="title_author";
+      }else{
+        const e=new Error("Bookfinder returned AR data, but the result could not be tied to this book by ISBN or a clear title/author match.");
+        e.code="ISBN_MISMATCH";e.bib=bib;throw e;
+      }
     }
 
     const ar=parseAR(text,isbn,page.url());
-    ar.matchBasis="isbn";
-    const bib=await bibPromise;
+    ar.matchBasis=matchBasis;
     const value={
       ...ar,
       title:bib?.title||null,
@@ -445,10 +492,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"2.7.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.0.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"2.7.0",
+  version:"3.0.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -492,7 +539,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`SnapAR v2.6.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v2.6.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

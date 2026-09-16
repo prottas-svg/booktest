@@ -1,8 +1,23 @@
 {
-  "version": "v2.7",
+  "version": "v3.0",
   "build_date": "2026-09-15",
-  "label": "v2.7 \u2022 September 15, 2026",
+  "label": "v3.0 \u2022 September 15, 2026",
   "changes": [
+    "Adds a permanent Add My AR Shelf to Home Screen section in Settings",
+    "Shows simple iPhone Safari installation instructions whenever the app is not already installed",
+    "Detects standalone/Home Screen mode and shows Added to Home Screen instead of installation instructions",
+    "Keeps the one-time first-use install prompt, but users can now find installation help again later",
+    "No changes to AR lookup logic, library data, kid profiles, recovery codes, or Railway /data backups",
+    "Rebranded the app from SnapAR to My AR Shelf",
+    "Updated visible app title, PWA/install name, browser title, metadata, and backup filenames",
+    "Preserved all existing scan_ar_* storage keys so books, kids, recovery codes, and backups remain compatible",
+    "No changes to AR lookup logic, Railway /data storage, or child/book schema",
+    "Fixes title/author fallback submission by submitting the exact AR Bookfinder form containing the Title field",
+    "Handles Bookfinder result layouts where AR fields appear directly in the result row",
+    "If ISBN is absent from a returned AR record, accepts a strict title+author match and labels it title/author match",
+    "Keeps exact ISBN verification as the preferred match path",
+    "Does not use fuzzy title-only matching",
+    "No changes to library storage, kid profiles, recovery codes, or Railway /data backups",
     "Rebranded the app from Scan AR to SnapAR",
     "Updated visible app title, browser/PWA name, install experience, metadata, and backup filenames",
     "Preserved all existing library, kid, recovery, and backup storage keys so current users keep their data",
@@ -68,5 +83,5 @@
     "Undoable child-specific Read / Not interested states",
     "AR provenance and last-checked date shown"
   ],
-  "productName": "SnapAR"
+  "productName": "My AR Shelf"
 }

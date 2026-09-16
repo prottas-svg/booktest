@@ -1,6 +1,6 @@
 {
-  "name": "SnapAR",
-  "short_name": "SnapAR",
+  "name": "My AR Shelf",
+  "short_name": "AR Shelf",
   "description": "Scan, organize, and manage Accelerated Reader books for your family.",
   "start_url": "/",
   "scope": "/",
