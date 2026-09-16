@@ -1,8 +1,11 @@
 {
-  "version": "v4.5",
+  "version": "v4.6",
   "build_date": "2026-09-15",
-  "label": "v4.5 \u2022 September 16, 2026",
+  "label": "v4.6 \u2022 September 16, 2026",
   "changes": [
+    "Fixes Kids-screen action buttons overlapping book text on narrow phone layouts",
+    "Moves Read / Not interested controls into their own wrapped action row",
+    "No lookup, library, kid-state, recovery, or backup behavior changes",
     "Fixes a regression in alternate-edition lookup: sibling ISBN searches were still using the old rule that required the ISBN to be printed on Bookfinder's result page",
     "Alternate ISBN searches now accept exactly one AR result from an exact ISBN query, matching the primary lookup behavior fixed in v3.8",
     "Records per-alternate ISBN lookup diagnostics",

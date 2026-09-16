@@ -535,12 +535,80 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 .book-stats .sep,.ar-meta .sep,.book-meta .sep{color:var(--muted)}
 </style>
 
+
+<style id="v46-kids-card-fix">
+/* Keep child-state controls from overlapping book text on narrow phones. */
+.kid-book-row,
+.kids-book-row,
+.kid-book-card,
+.kids-book-card{
+  position:relative;
+}
+
+.kid-book-row .book-actions,
+.kids-book-row .book-actions,
+.kid-book-card .book-actions,
+.kids-book-card .book-actions,
+.kid-book-row .kid-actions,
+.kids-book-row .kid-actions,
+.kid-book-card .kid-actions,
+.kids-book-card .kid-actions{
+  position:static !important;
+  margin-top:10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  width:100%;
+}
+
+.kid-book-row .book-actions button,
+.kids-book-row .book-actions button,
+.kid-book-card .book-actions button,
+.kids-book-card .book-actions button,
+.kid-book-row .kid-actions button,
+.kids-book-row .kid-actions button,
+.kid-book-card .kid-actions button,
+.kids-book-card .kid-actions button{
+  max-width:100%;
+  white-space:normal;
+  line-height:1.2;
+}
+
+@media (max-width: 520px){
+  .kid-book-row,
+  .kids-book-row,
+  .kid-book-card,
+  .kids-book-card{
+    display:block !important;
+  }
+
+  .kid-book-row .book-main,
+  .kids-book-row .book-main,
+  .kid-book-card .book-main,
+  .kids-book-card .book-main{
+    width:100%;
+    min-width:0;
+  }
+
+  .kid-book-row .book-actions,
+  .kids-book-row .book-actions,
+  .kid-book-card .book-actions,
+  .kids-book-card .book-actions,
+  .kid-book-row .kid-actions,
+  .kids-book-row .kid-actions,
+  .kid-book-card .kid-actions,
+  .kids-book-card .kid-actions{
+    justify-content:flex-start;
+  }
+}
+</style>
+
 </head>
 <body>
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v4.5</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v4.6</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -1097,7 +1165,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'4.5',
+    appVersion:'4.6',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,
