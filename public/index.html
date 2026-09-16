@@ -540,7 +540,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v4.2</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v4.4</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -970,23 +970,29 @@ function enqueue(raw,source='scan'){
   pumpQueue();
   return true;
 }
-function repairMissingBookNames(){
+async function repairMissingBookNames(){
+  const missing=Object.values(data.books)
+    .filter(b=>!b.title)
+    .slice(0,12);
+  if(!missing.length)return;
+
   let changed=false;
-  let n=0;
-  for(const b of Object.values(data.books)){
-    if(n>=5)break;
-    if(b.lookupStatus==='found' && !b.title && b.quizNumber){
-      b.lookupStatus='queued';
-      b.forceRefresh=true;
-      b.error=null;
-      n++;
-      changed=true;
-    }
+  for(const b of missing){
+    try{
+      const r=await fetch('/api/meta/'+encodeURIComponent(b.isbn));
+      if(!r.ok) continue;
+      const j=await r.json();
+      if(j.title){
+        b.title=j.title;
+        b.author=j.author||b.author||null;
+        b.metadataSource=j.metadataSource||b.metadataSource||null;
+        changed=true;
+      }
+    }catch{}
   }
   if(changed){
-    persist();
+    localStorage.setItem(KEY,JSON.stringify(data));
     renderAll();
-    pumpQueue();
   }
 }
 
@@ -1025,7 +1031,7 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
-      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':(j.matchBasis==='quick_isbn_unique'?' · ISBN search match':'')))}`);
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':(j.matchBasis==='quick_isbn_unique'?' · ISBN search match':(j.matchBasis==='equivalent_isbn'?' · ISBN equivalent match':''))))}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
         lookupStatus:'no_ar',
@@ -1091,7 +1097,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'4.2',
+    appVersion:'4.4',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,
@@ -1486,9 +1492,23 @@ $('autoBackupToggle').addEventListener('change',()=>{
   renderBackupStatus();
 });
 $('exportBtn').onclick=exportBackup;
-$('eraseBtn').onclick=()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}};
+$('eraseBtn').onclick=()=>{
+  if(!confirm('Erase the entire local household library and all child profiles from this device? Your online recovery backup will remain available.')) return;
+  clearTimeout(serverSyncTimer);
+  localStorage.removeItem(KEY);
+  for(const key of OLD_KEYS) localStorage.removeItem(key);
+  data=freshData();
+  recentSession.length=0;
+  activeLookups=0;
+  selectedKidId=null;
+  sessionCapturedCount=0;
+  sessionBackupDone=false;
+  renderAll();
+  showToast('Local library erased');
+};
 
 renderAll();pumpQueue();
+setTimeout(()=>repairMissingBookNames(),800);
 </script>
 
 <script id="v21-behavior">

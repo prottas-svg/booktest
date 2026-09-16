@@ -49,41 +49,61 @@ function isValidISBN(isbn) {
 }
 
 async function lookupBibliographic(isbn) {
-  // 1) Open Library
+  const normalized=normalizeISBN(isbn);
+
+  // 1) Open Library direct ISBN endpoint.
   try {
-    const r = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&jscmd=data&format=json`);
+    const r = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(normalized)}&jscmd=data&format=json`);
     if (r.ok) {
       const j = await r.json();
-      const d = j[`ISBN:${isbn}`];
+      const d = j[`ISBN:${normalized}`];
       if (d?.title) {
         return {
-          title: d.title || null,
-          author: Array.isArray(d.authors) ? d.authors.map(a=>a.name).filter(Boolean).join(", ") : null,
-          cover: d.cover?.medium || d.cover?.small || null,
-          pages: d.number_of_pages || null,
-          metadataSource: "Open Library"
+          title:d.title||null,
+          author:Array.isArray(d.authors)?d.authors.map(a=>a.name).filter(Boolean).join(", "):null,
+          cover:d.cover?.medium||d.cover?.small||null,
+          pages:d.number_of_pages||null,
+          metadataSource:"Open Library"
         };
       }
     }
   } catch {}
 
-  // 2) Google Books fallback. This is used only for ordinary bibliographic
-  // metadata (title/author/cover/pages), never for AR values.
+  // 2) Open Library search index. This sometimes has ISBN metadata when api/books does not.
   try {
-    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}&maxResults=5`);
-    if (r.ok) {
-      const j = await r.json();
-      const items = Array.isArray(j.items) ? j.items : [];
-      for (const item of items) {
+    const r=await fetch(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(normalized)}&limit=5&fields=title,author_name,isbn,cover_i,number_of_pages_median`);
+    if(r.ok){
+      const j=await r.json();
+      const docs=Array.isArray(j.docs)?j.docs:[];
+      const exact=docs.find(d=>Array.isArray(d.isbn) && d.isbn.map(normalizeISBN).includes(normalized)) || (docs.length===1?docs[0]:null);
+      if(exact?.title){
+        return {
+          title:exact.title||null,
+          author:Array.isArray(exact.author_name)?exact.author_name.filter(Boolean).join(", "):null,
+          cover:exact.cover_i?`https://covers.openlibrary.org/b/id/${exact.cover_i}-M.jpg`:null,
+          pages:exact.number_of_pages_median||null,
+          metadataSource:"Open Library"
+        };
+      }
+    }
+  } catch {}
+
+  // 3) Google Books fallback. Display metadata only; never AR values.
+  try {
+    const c=new AbortController();
+    const t=setTimeout(()=>c.abort(),7000);
+    const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(normalized)}&maxResults=5`,{signal:c.signal});
+    clearTimeout(t);
+    if(r.ok){
+      const j=await r.json();
+      const items=Array.isArray(j.items)?j.items:[];
+      for(const item of items){
         const v=item?.volumeInfo||{};
         if(!v.title) continue;
-
-        // Prefer a record whose industry identifier exactly matches the scanned ISBN.
         const ids=Array.isArray(v.industryIdentifiers)
           ? v.industryIdentifiers.map(x=>normalizeISBN(x?.identifier||"")).filter(Boolean)
           : [];
-        if(ids.length && !ids.includes(normalizeISBN(isbn))) continue;
-
+        if(ids.length && !ids.includes(normalized)) continue;
         return {
           title:v.title||null,
           author:Array.isArray(v.authors)?v.authors.filter(Boolean).join(", "):null,
@@ -92,9 +112,6 @@ async function lookupBibliographic(isbn) {
           metadataSource:"Google Books"
         };
       }
-
-      // If Google returned exactly one ISBN search result but omitted identifiers,
-      // use it for display metadata only.
       if(items.length===1 && items[0]?.volumeInfo?.title){
         const v=items[0].volumeInfo;
         return {
@@ -366,23 +383,55 @@ async function fetchJson(url,timeoutMs=8000){
 }
 
 async function lookupSiblingISBNs(isbn){
-  const edition=await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
-  const workKey=edition?.works?.[0]?.key;
-  if(!workKey) return [];
-
-  const editions=await fetchJson(`https://openlibrary.org${workKey}/editions.json?limit=50`);
+  const normalized=normalizeISBN(isbn);
   const out=[];
-  for(const e of editions?.entries||[]){
-    for(const candidate of [...(e.isbn_13||[]),...(e.isbn_10||[])]){
-      const n=normalizeISBN(candidate);
-      if((n.length===10||n.length===13) && n!==normalizeISBN(isbn) && !out.includes(n)){
-        out.push(n);
-      }
+
+  function add(candidate){
+    const n=normalizeISBN(candidate);
+    if((n.length===10||n.length===13) && n!==normalized && !out.includes(n)){
+      out.push(n);
     }
   }
-  return out.slice(0,24);
-}
 
+  // A) Best case: resolve the edition to its Open Library work, then enumerate editions.
+  try{
+    const edition=await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(normalized)}.json`);
+    const workKey=edition?.works?.[0]?.key;
+    if(workKey){
+      const editions=await fetchJson(`https://openlibrary.org${workKey}/editions.json?limit=100`);
+      for(const e of editions?.entries||[]){
+        for(const candidate of [...(e.isbn_13||[]),...(e.isbn_10||[])]) add(candidate);
+      }
+    }
+  }catch{}
+
+  // B) Fallback: Open Library's search index may know the ISBN family even when
+  // /isbn/{isbn}.json has no edition record. Collect ISBNs from exact ISBN hits.
+  try{
+    const search=await fetchJson(
+      `https://openlibrary.org/search.json?isbn=${encodeURIComponent(normalized)}&limit=10&fields=isbn,title,author_name`
+    );
+    for(const doc of search?.docs||[]){
+      const ids=Array.isArray(doc.isbn)?doc.isbn:[];
+      // Prefer docs that explicitly contain the scanned ISBN. If OL returns only
+      // one doc for the ISBN query, accept its ISBN family as well.
+      const exact=ids.map(normalizeISBN).includes(normalized);
+      if(exact || (search?.docs||[]).length===1){
+        for(const candidate of ids) add(candidate);
+      }
+    }
+  }catch{}
+
+  // Try likely equivalents first and cap requests to stay polite/reasonable.
+  const ten=isbn13To10(normalized);
+  if(ten){
+    const i=out.indexOf(ten);
+    if(i>0){out.splice(i,1);out.unshift(ten)}
+    else if(i<0) out.unshift(ten);
+  }
+
+  return out.slice(0,30);
+}
 async function searchBookfinderExactISBN(page,isbn){
   await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
   const input=await findISBNInput(page);
@@ -808,8 +857,36 @@ async function performLookup(isbn,{refresh=false}={}) {
         /no results|no books|did not match|no matches/i.test(searchText)
       )) && !searchHasAR){
 
-      // First mirror the simple Bookfinder search used by a person on the main page.
-      // Advanced Search and Quick Search do not always return the same record set.
+      // First try the mathematically equivalent ISBN-10 for a 978 ISBN-13.
+      // Some Bookfinder records index one representation but not the other.
+      const equivalent10=isbn13To10(isbn);
+      if(equivalent10){
+        try{
+          const eqAR=await searchBookfinderExactISBN(page,equivalent10);
+          if(eqAR){
+            const value={
+              ...eqAR,
+              isbn,
+              scannedISBN:isbn,
+              title:bib?.title||null,
+              author:bib?.author||null,
+              cover:bib?.cover||null,
+              pages:bib?.pages||null,
+              metadataSource:bib?.metadataSource||"AR Bookfinder",
+              arSource:"AR Bookfinder",
+              matchBasis:"equivalent_isbn",
+              matchedISBN:equivalent10,
+              lookedUpAt:new Date().toISOString()
+            };
+            cache.set(isbn,{time:Date.now(),value});
+            return value;
+          }
+        }catch(eqErr){
+          console.warn("[ISBN-10 fallback]",eqErr?.message||eqErr);
+        }
+      }
+
+      // Then mirror the simple Bookfinder search used by a person on the main page.
       try{
         const quick=await searchBookfinderQuickByISBN(page,isbn);
         if(quick?.found){
@@ -833,21 +910,23 @@ async function performLookup(isbn,{refresh=false}={}) {
         console.warn("[quick ISBN fallback]",quickErr?.message||quickErr);
       }
 
-      // Next try sibling editions of the SAME Open Library work.
+      // Next try alternate ISBNs for the same book/work reported by Open Library.
       try{
         const siblings=await lookupSiblingISBNs(isbn);
+        isbnDiagnostics.siblingCandidates=siblings.slice(0,12);
         for(const sibling of siblings){
           const siblingAR=await searchBookfinderExactISBN(page,sibling);
           if(siblingAR){
+            const siblingBib=bib||await lookupBibliographic(sibling).catch(()=>null);
             return {
               ...siblingAR,
               isbn,
               scannedISBN:isbn,
-              title:bib?.title||bfIdentity.title||null,
-              author:bib?.author||bfIdentity.author||null,
-              cover:bib?.cover||null,
-              pages:bib?.pages||null,
-              metadataSource:bib?.metadataSource||"AR Bookfinder",
+              title:siblingBib?.title||bfIdentity.title||null,
+              author:siblingBib?.author||bfIdentity.author||null,
+              cover:siblingBib?.cover||null,
+              pages:siblingBib?.pages||null,
+              metadataSource:siblingBib?.metadataSource||"AR Bookfinder",
               arSource:"AR Bookfinder",
               matchBasis:"related_edition_isbn",
               matchedISBN:sibling,
@@ -993,10 +1072,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.2.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.4.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"4.2.0",
+  version:"4.4.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1005,6 +1084,14 @@ app.get("/api/lookup-status",(_req,res)=>res.json({
 app.get("/api/status",async(_req,res)=>{
   try{const b=await getBrowser();res.json({ok:true,browserConnected:b.isConnected(),cacheEntries:cache.size})}
   catch(e){res.status(503).json({ok:false,browserConnected:false,error:String(e?.message||e)})}
+});
+
+app.get("/api/meta/:isbn",async(req,res)=>{
+  const isbn=normalizeISBN(req.params.isbn);
+  if(!isValidISBN(isbn)) return res.status(400).json({error:"Invalid ISBN."});
+  const bib=await lookupBibliographic(isbn);
+  if(!bib) return res.status(404).json({isbn,title:null,author:null});
+  return res.json({isbn,...bib});
 });
 
 app.get("/api/ar/:isbn",async(req,res)=>{
@@ -1042,7 +1129,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.2.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.4.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
