@@ -534,7 +534,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v3.7</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v3.8</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -998,7 +998,7 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
-      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':'')}`);
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':''))}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
         lookupStatus:'no_ar',
@@ -1053,6 +1053,8 @@ function diagnosticSummary(book){
   if(d.fieldValue) bits.push(`field=${d.fieldValue}`);
   if(d.submitMeta?.method) bits.push(`submit=${d.submitMeta.method}`);
   if(Number.isFinite(d.resultLinks)) bits.push(`links=${d.resultLinks}`);
+  if(Number.isFinite(d.resultCount)) bits.push(`results=${d.resultCount}`);
+  if(Number.isFinite(d.uniqueDetailLinks)) bits.push(`uniqueDetails=${d.uniqueDetailLinks}`);
   if(Array.isArray(d.isbns) && d.isbns.length) bits.push(`ISBNs=${d.isbns.slice(0,6).join(',')}`);
   bits.push(`AR fields=${d.containsQuiz?'yes':'no'}`);
   return bits.join(' · ');
@@ -1060,7 +1062,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'3.7',
+    appVersion:'3.8',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,

@@ -1,8 +1,14 @@
 {
-  "version": "v3.7",
+  "version": "v3.8",
   "build_date": "2026-09-15",
-  "label": "v3.7 \u2022 September 16, 2026",
+  "label": "v3.8 \u2022 September 16, 2026",
   "changes": [
+    "Uses v3.7 diagnostics to fix false ISBN_MISMATCH errors",
+    "Accepts one AR record returned by an exact ISBN search even when Bookfinder omits the ISBN from the result text",
+    "Parses Bookfinder's 'Title 1 - 1 of 1' result count instead of relying on broad no-result text matching",
+    "Deduplicates multiple links that point to the same Bookfinder detail record",
+    "Keeps strict mismatch handling when an ISBN search returns multiple plausible records",
+    "No changes to library storage, kid profiles, recovery codes, or Railway /data backups",
     "Fixes v3.6 UI rendering regression that could make newly scanned books disappear from Recent Scans and Library",
     "Corrects diagnostic rendering to use the current book object",
     "Fixes Copy diagnostics lookup for object-keyed book storage",

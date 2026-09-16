@@ -422,6 +422,39 @@ function collectISBNsFromText(text=""){
   return out.slice(0,50);
 }
 
+
+function parseBookfinderResultCount(text=""){
+  const s=String(text);
+  // Typical Bookfinder heading: "Title 1 - 1 of 1"
+  const m=s.match(/Title\s+\d+\s*-\s*\d+\s+of\s+(\d+)/i);
+  if(m) return Number(m[1]);
+  if(/Search Results/i.test(s) && /no results|no books|did not match|no matches/i.test(s)) return 0;
+  return null;
+}
+
+async function uniqueBookDetailHrefs(page){
+  const links=page.locator('a[href*="bookdetail.aspx" i]');
+  const count=await links.count();
+  const out=[];
+  for(let i=0;i<count;i++){
+    const href=await links.nth(i).getAttribute("href").catch(()=>null);
+    if(href && !out.includes(href)) out.push(href);
+  }
+  return out;
+}
+
+async function getSingleBookDetailLink(page){
+  const links=page.locator('a[href*="bookdetail.aspx" i]');
+  const hrefs=await uniqueBookDetailHrefs(page);
+  if(hrefs.length!==1) return null;
+  const count=await links.count();
+  for(let i=0;i<count;i++){
+    const href=await links.nth(i).getAttribute("href").catch(()=>null);
+    if(href===hrefs[0]) return links.nth(i);
+  }
+  return null;
+}
+
 async function diagnosticSnapshot(page,extra={}){
   const text=await page.locator("body").innerText().catch(()=>"");
   return {
@@ -431,6 +464,8 @@ async function diagnosticSnapshot(page,extra={}){
     containsATOS:/ATOS Book Level|Book Level|\bBL\b/i.test(text),
     isbns:collectISBNsFromText(text),
     resultLinks:await page.locator('a[href*="bookdetail.aspx" i]').count().catch(()=>0),
+    resultCount:parseBookfinderResultCount(text),
+    uniqueDetailLinks:(await uniqueBookDetailHrefs(page).catch(()=>[])).length,
     textPreview:text.slice(0,2200),
     ...extra
   };
@@ -464,9 +499,22 @@ async function performLookup(isbn,{refresh=false}={}) {
     });
     let text=searchText;
 
-    const lowerSearch=searchText.toLowerCase();
-    if(/no results|no books|0 results|did not match|no matches/.test(lowerSearch)){
-      const bib=await bibPromise;
+    const resultCount=parseBookfinderResultCount(searchText);
+    const searchHasAR=/AR Quiz No\./i.test(searchText);
+    const bib=await bibPromise;
+
+    // A manual ISBN search on Bookfinder can return exactly one valid book while the
+    // result card itself omits the ISBN. The diagnostics proved this happens.
+    // Because this page was produced by an exact ISBN query, one unique result + AR fields
+    // is sufficient evidence to accept the result as the ISBN-search match.
+    const uniqueISBNSearchResult=(resultCount===1 && searchHasAR);
+
+    // Only call it "no result" when the result page itself says zero/no results AND
+    // there are no AR fields. Avoid broad text matching before inspecting the result page.
+    if((resultCount===0 || (
+        resultCount===null &&
+        /no results|no books|did not match|no matches/i.test(searchText)
+      )) && !searchHasAR){
 
       // First try sibling editions of the SAME Open Library work.
       try{
@@ -497,7 +545,6 @@ async function performLookup(isbn,{refresh=false}={}) {
       // If no sibling ISBN works, fall back to a strict title+author search.
       if(bib?.title && bib?.author){
         try{
-          // Return to advanced search before the fallback query.
           await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
           const fallback=await searchBookfinderByTitleAuthor(page,bib.title,bib.author);
           if(fallback){
@@ -519,25 +566,21 @@ async function performLookup(isbn,{refresh=false}={}) {
         }
       }
 
-      const e=new Error("No AR result was found by ISBN, and the title search did not produce one unique matching title/author result.");
+      const e=new Error("No AR result was found by ISBN, related editions, or a unique title/author match.");
       e.code="NOT_FOUND";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
     }
 
-    // Verify the ISBN on the SEARCH RESULTS page before navigating away.
-    // Bookfinder's detail pages often omit ISBN entirely, which caused valid books
-    // to be mislabeled ISBN_MISMATCH in v2.4.
     const verifiedOnSearch=textContainsISBN(searchText,isbn);
     const exactLink=await findExactResultLink(page,isbn);
-    const detailLinks=page.locator('a[href*="bookdetail.aspx" i]');
-    const count=await detailLinks.count();
+    const singleDetailLink=await getSingleBookDetailLink(page);
 
     if(exactLink){
       await exactLink.click();
       await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
       await page.waitForTimeout(500);
       text=await page.locator("body").innerText();
-    }else if(count===1 && verifiedOnSearch){
-      await detailLinks.first().click();
+    }else if(singleDetailLink && (verifiedOnSearch || uniqueISBNSearchResult)){
+      await singleDetailLink.click();
       await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
       await page.waitForTimeout(500);
       text=await page.locator("body").innerText();
@@ -558,20 +601,25 @@ async function performLookup(isbn,{refresh=false}={}) {
     // for the work but does not expose the edition ISBN, allow a strict title+author
     // match against bibliographic metadata. This is labelled honestly as title_author.
     const verified=verifiedOnSearch || textContainsISBN(text,isbn);
-    const bib=await bibPromise;
     let matchBasis="isbn";
 
     if(!verified){
-      const titleAuthorVerified=
-        bib?.title && bib?.author &&
-        (titleAuthorMatch(bib.title,bib.author,searchText) ||
-         titleAuthorMatch(bib.title,bib.author,text));
-
-      if(titleAuthorVerified){
-        matchBasis="title_author";
+      if(uniqueISBNSearchResult){
+        // The result came directly from an exact ISBN query and Bookfinder returned
+        // exactly one AR record. Bookfinder simply did not print the ISBN in the result text.
+        matchBasis="isbn_search_unique";
       }else{
-        const e=new Error("Bookfinder returned AR data, but the result could not be tied to this book by ISBN or a clear title/author match.");
-        e.code="ISBN_MISMATCH";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
+        const titleAuthorVerified=
+          bib?.title && bib?.author &&
+          (titleAuthorMatch(bib.title,bib.author,searchText) ||
+           titleAuthorMatch(bib.title,bib.author,text));
+
+        if(titleAuthorVerified){
+          matchBasis="title_author";
+        }else{
+          const e=new Error("Bookfinder returned AR data, but the result could not be tied to this book by ISBN, a unique ISBN-search result, or a clear title/author match.");
+          e.code="ISBN_MISMATCH";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
+        }
       }
     }
 
@@ -628,10 +676,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.7.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.8.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.7.0",
+  version:"3.8.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -677,7 +725,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.7.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.8.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

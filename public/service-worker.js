@@ -1,5 +1,5 @@
 
-const CACHE='my-ar-shelf-shell-v3.7';
+const CACHE='my-ar-shelf-shell-v3.8';
 const SHELL=['/','/manifest.webmanifest','/icons/icon-192.png','/icons/icon-512.png','/icons/icon-180.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));
