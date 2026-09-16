@@ -1,8 +1,14 @@
 {
-  "version": "v3.0",
+  "version": "v3.1",
   "build_date": "2026-09-15",
-  "label": "v3.0 \u2022 September 15, 2026",
+  "label": "v3.1 \u2022 September 16, 2026",
   "changes": [
+    "Fixes the remaining title/author fallback failure seen with Princess Cora and the Crocodile",
+    "Title fallback now searches Bookfinder by title only and verifies the author locally",
+    "Clicks the actual Search/Go control inside Bookfinder's search form instead of relying on generic form.requestSubmit()",
+    "Keeps strict unique title+author matching before accepting AR data",
+    "Preserves the successful Narwhal matching behavior from v2.8/v3.0",
+    "No changes to library data, kid profiles, recovery codes, or Railway /data backups",
     "Adds a permanent Add My AR Shelf to Home Screen section in Settings",
     "Shows simple iPhone Safari installation instructions whenever the app is not already installed",
     "Detects standalone/Home Screen mode and shows Added to Home Screen instead of installation instructions",

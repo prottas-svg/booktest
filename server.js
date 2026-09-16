@@ -215,30 +215,35 @@ async function searchBookfinderByTitleAuthor(page,title,author){
   );
   if(!titleInput) throw new Error("Could not locate the Title field on AR Bookfinder.");
 
-  const authorInput=await findVisible(
-    ['input[name*="Author" i]','input[id*="Author" i]','input[placeholder*="author" i]'],
-    /author/i
-  );
-
   await titleInput.fill(title);
-  if(authorInput) await authorInput.fill(author||"");
 
-  // Submit the exact form containing the title field. This avoids accidentally
-  // clicking one of Bookfinder's several unrelated submit inputs.
-  const submitted=await titleInput.evaluate(el=>{
-    const form=el.form || el.closest("form");
-    if(!form) return false;
-    if(typeof form.requestSubmit==="function") form.requestSubmit();
-    else form.submit();
-    return true;
-  }).catch(()=>false);
+  const form = titleInput.locator('xpath=ancestor::form[1]');
+  let submitted=false;
+
+  if(await form.count()){
+    const submitSelectors=[
+      'input[type="submit"][value*="Search" i]',
+      'input[type="submit"][value*="Go" i]',
+      'button[type="submit"]:has-text("Search")',
+      'button[type="submit"]:has-text("Go")',
+      'input[type="image"]'
+    ];
+    for(const sel of submitSelectors){
+      const btn=form.locator(sel).first();
+      if(await btn.count() && await btn.isVisible().catch(()=>false)){
+        await btn.click();
+        submitted=true;
+        break;
+      }
+    }
+  }
 
   if(!submitted){
     await titleInput.press("Enter").catch(()=>{});
   }
 
   await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-  await page.waitForTimeout(650);
+  await page.waitForTimeout(700);
 
   const bodyText=await page.locator("body").innerText();
   const lower=bodyText.toLowerCase();
@@ -273,11 +278,9 @@ async function searchBookfinderByTitleAuthor(page,title,author){
     if(titleAuthorMatch(title,author,bestText)) matches.push({link,rowText:bestText});
   }
 
-  // If exactly one result row matches title+author, use that result.
   if(matches.length===1){
     const match=matches[0];
 
-    // Some Bookfinder result layouts already expose all AR fields in the result row.
     if(/AR Quiz No\./i.test(match.rowText) && /ATOS Book Level|Book Level|\bBL\b/i.test(match.rowText)){
       return {
         text:match.rowText,
@@ -290,6 +293,7 @@ async function searchBookfinderByTitleAuthor(page,title,author){
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
     await page.waitForTimeout(500);
     const detailText=await page.locator("body").innerText();
+
     if(/AR Quiz No\./i.test(detailText)){
       return {
         text:detailText,
@@ -299,8 +303,6 @@ async function searchBookfinderByTitleAuthor(page,title,author){
     }
   }
 
-  // Some Bookfinder layouts render a single result without a normal detail link.
-  // Accept only when the whole page clearly contains title, author, and AR fields.
   if(count<=1 &&
      titleAuthorMatch(title,author,bodyText) &&
      /AR Quiz No\./i.test(bodyText) &&
@@ -383,7 +385,7 @@ async function performLookup(isbn,{refresh=false}={}) {
         }
       }
 
-      const e=new Error("No Accelerated Reader quiz was found by ISBN, and no unique title/author match could be confirmed.");
+      const e=new Error("No AR result was found by ISBN, and the title search did not produce one unique matching title/author result.");
       e.code="NOT_FOUND";e.bib=bib;throw e;
     }
 
@@ -492,10 +494,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.0.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.1.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.0.0",
+  version:"3.1.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
