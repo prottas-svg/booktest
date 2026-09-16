@@ -93,7 +93,7 @@ function parseAR(text,isbn,finalUrl) {
   const wordRaw=firstMatch(normalized,[/Word Count:?\s*([0-9,]+)/i]);
   if(!quizNumber || atosRaw==null) {
     const e=new Error("Bookfinder returned a result, but required AR fields could not be recognized.");
-    e.code="PARSE_CHANGED";e.diagnostics=isbnDiagnostics;throw e;
+    e.code="PARSE_CHANGED";throw e;
   }
   return {
     isbn,quizNumber,atos:Number(atosRaw),points:pointsRaw?Number(pointsRaw):null,
@@ -239,11 +239,6 @@ async function searchBookfinderExactISBN(page,isbn){
   await page.waitForTimeout(500);
 
   let searchText=await page.locator("body").innerText();
-    const isbnDiagnostics=await diagnosticSnapshot(page,{
-      searchedISBN:isbn,
-      submitMeta:typeof submitMeta!=="undefined"?submitMeta:null,
-      fieldValue:await input.inputValue().catch(()=>"")
-    });
   const lower=searchText.toLowerCase();
   if(/no results|no books|0 results|did not match|no matches/.test(lower)) return null;
 
@@ -437,6 +432,11 @@ async function performLookup(isbn,{refresh=false}={}) {
     const submitMeta=await submitSearch(page,input);
     await page.waitForTimeout(700);
     let searchText=await page.locator("body").innerText();
+    const isbnDiagnostics=await diagnosticSnapshot(page,{
+      searchedISBN:isbn,
+      submitMeta,
+      fieldValue:await input.inputValue().catch(()=>"")
+    });
     let text=searchText;
 
     const lowerSearch=searchText.toLowerCase();
@@ -525,7 +525,7 @@ async function performLookup(isbn,{refresh=false}={}) {
         text=searchText;
       } else {
         const e=new Error("Bookfinder returned a page, but its AR fields could not be recognized.");
-        e.code="PARSE_CHANGED";throw e;
+        e.code="PARSE_CHANGED";e.diagnostics=isbnDiagnostics;throw e;
       }
     }
 
@@ -603,10 +603,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.3.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.4.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.3.0",
+  version:"3.4.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -652,7 +652,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v2.6.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.4.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

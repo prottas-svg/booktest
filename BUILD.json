@@ -1,8 +1,13 @@
 {
-  "version": "v3.3",
+  "version": "v3.4",
   "build_date": "2026-09-15",
-  "label": "v3.3 \u2022 September 16, 2026",
+  "label": "v3.4 \u2022 September 16, 2026",
   "changes": [
+    "Fixes v3.3 ReferenceError: isbnDiagnostics is not defined",
+    "Moves ISBN diagnostics into the actual performLookup() request scope",
+    "Removes accidental diagnostics references from parseAR() and sibling-edition helper",
+    "Keeps deterministic lookup diagnostics for Cora and other failed ISBN searches",
+    "No changes to library storage, kid profiles, recovery codes, or Railway /data backups",
     "Diagnostic release for AR Bookfinder ISBN search",
     "ISBN entry is typed into the detected ISBN field before submitting",
     "Captures searched ISBN, field value, submit method, result-link count, ISBNs seen on page, and whether AR fields appeared",
