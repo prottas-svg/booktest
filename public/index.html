@@ -512,7 +512,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v3.1</span><span style="opacity:.55">•</span><span>September 15, 2026</span></div>
+<div class="build"><span>v3.2</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -965,11 +965,12 @@ async function lookupBook(book,refresh=false){
         wordCount:j.wordCount,
         arSource:'AR Bookfinder',
         matchBasis:j.matchBasis||'isbn',
+        matchedISBN:j.matchedISBN||null,
         metadataSource:j.metadataSource||'AR Bookfinder',
         lookedUpAt:j.lookedUpAt||now(),
         error:null
       });
-      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':''}`);
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':'')}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
         lookupStatus:'no_ar',

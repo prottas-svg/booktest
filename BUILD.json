@@ -1,8 +1,14 @@
 {
-  "version": "v3.1",
+  "version": "v3.2",
   "build_date": "2026-09-15",
-  "label": "v3.1 \u2022 September 16, 2026",
+  "label": "v3.2 \u2022 September 16, 2026",
   "changes": [
+    "Fixes the visible build date to September 16, 2026",
+    "Adds same-work edition fallback before title/author fallback",
+    "Uses Open Library work/edition records to discover sibling ISBNs for the scanned book",
+    "Queries AR Bookfinder by sibling ISBNs and only accepts exact ISBN-verified AR results",
+    "Labels successful sibling-edition results as related edition match",
+    "No changes to existing library storage, kid profiles, recovery codes, or Railway /data backups",
     "Fixes the remaining title/author fallback failure seen with Princess Cora and the Crocodile",
     "Title fallback now searches Bookfinder by title only and verifies the author locally",
     "Clicks the actual Search/Go control inside Bookfinder's search form instead of relying on generic form.requestSubmit()",

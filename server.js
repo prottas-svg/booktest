@@ -196,6 +196,82 @@ function titleAuthorMatch(searchTitle,searchAuthor,resultText){
     : false;
   return titleOk && authorOk;
 }
+
+async function fetchJson(url,timeoutMs=8000){
+  const c=new AbortController();
+  const t=setTimeout(()=>c.abort(),timeoutMs);
+  try{
+    const r=await fetch(url,{signal:c.signal,headers:{"user-agent":"MyARShelf/3.2"}});
+    if(!r.ok) return null;
+    return await r.json();
+  }catch{
+    return null;
+  }finally{
+    clearTimeout(t);
+  }
+}
+
+async function lookupSiblingISBNs(isbn){
+  const edition=await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
+  const workKey=edition?.works?.[0]?.key;
+  if(!workKey) return [];
+
+  const editions=await fetchJson(`https://openlibrary.org${workKey}/editions.json?limit=50`);
+  const out=[];
+  for(const e of editions?.entries||[]){
+    for(const candidate of [...(e.isbn_13||[]),...(e.isbn_10||[])]){
+      const n=normalizeISBN(candidate);
+      if((n.length===10||n.length===13) && n!==normalizeISBN(isbn) && !out.includes(n)){
+        out.push(n);
+      }
+    }
+  }
+  return out.slice(0,24);
+}
+
+async function searchBookfinderExactISBN(page,isbn){
+  await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
+  const input=await findISBNInput(page);
+  if(!input) return null;
+  await input.fill(isbn);
+  await submitSearch(page,input);
+  await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+  await page.waitForTimeout(500);
+
+  let searchText=await page.locator("body").innerText();
+  const lower=searchText.toLowerCase();
+  if(/no results|no books|0 results|did not match|no matches/.test(lower)) return null;
+
+  const verifiedOnSearch=textContainsISBN(searchText,isbn);
+  const exactLink=await findExactResultLink(page,isbn);
+  const detailLinks=page.locator('a[href*="bookdetail.aspx" i]');
+  const count=await detailLinks.count();
+  let text=searchText;
+
+  if(exactLink){
+    await exactLink.click();
+    await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+    await page.waitForTimeout(500);
+    text=await page.locator("body").innerText();
+  }else if(count===1 && verifiedOnSearch){
+    await detailLinks.first().click();
+    await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+    await page.waitForTimeout(500);
+    text=await page.locator("body").innerText();
+  }
+
+  if(!/AR Quiz No\./i.test(text) && verifiedOnSearch && /AR Quiz No\./i.test(searchText)){
+    text=searchText;
+  }
+  if(!/AR Quiz No\./i.test(text)) return null;
+  if(!(verifiedOnSearch || textContainsISBN(text,isbn))) return null;
+
+  const ar=parseAR(text,isbn,page.url());
+  ar.matchBasis="related_edition_isbn";
+  ar.matchedISBN=isbn;
+  return ar;
+}
+
 async function searchBookfinderByTitleAuthor(page,title,author){
   const findVisible = async (selectors, labelRegex) => {
     for(const sel of selectors){
@@ -359,8 +435,33 @@ async function performLookup(isbn,{refresh=false}={}) {
     if(/no results|no books|0 results|did not match|no matches/.test(lowerSearch)){
       const bib=await bibPromise;
 
-      // Some editions/printings are absent from Bookfinder's ISBN index even though
-      // the work has an AR quiz. Fall back to a strict title+author search.
+      // First try sibling editions of the SAME Open Library work.
+      try{
+        const siblings=await lookupSiblingISBNs(isbn);
+        for(const sibling of siblings){
+          const siblingAR=await searchBookfinderExactISBN(page,sibling);
+          if(siblingAR){
+            return {
+              ...siblingAR,
+              isbn,
+              scannedISBN:isbn,
+              title:bib?.title||null,
+              author:bib?.author||null,
+              cover:bib?.cover||null,
+              pages:bib?.pages||null,
+              metadataSource:bib?.metadataSource||"Open Library",
+              arSource:"AR Bookfinder",
+              matchBasis:"related_edition_isbn",
+              matchedISBN:sibling,
+              lookedUpAt:new Date().toISOString()
+            };
+          }
+        }
+      }catch(editionErr){
+        console.warn("[related-edition fallback]",editionErr?.message||editionErr);
+      }
+
+      // If no sibling ISBN works, fall back to a strict title+author search.
       if(bib?.title && bib?.author){
         try{
           // Return to advanced search before the fallback query.
@@ -494,10 +595,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.1.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.2.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.1.0",
+  version:"3.2.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
