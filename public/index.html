@@ -534,7 +534,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v3.6</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v3.7</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -946,8 +946,9 @@ function enqueue(raw,source='scan'){
   if(existing){
     existing.lastScannedAt=now();existing.scanCount=(existing.scanCount||1)+1;
     if(!recentSession.includes(isbn))recentSession.push(isbn);
-    persist();renderAll();
+    persist();
     showCapture('Already saved');
+    try{renderAll()}catch(e){console.error('[render duplicate]',e)}
     setOutcome('duplicate',bookTitle(existing),existing.author,'No duplicate was added.');
     return true;
   }
@@ -955,9 +956,13 @@ function enqueue(raw,source='scan'){
     isbn,lookupStatus:'queued',title:null,author:null,atos:null,points:null,interestLevel:null,quizNumber:null,wordCount:null,
     metadataSource:null,arSource:null,lookedUpAt:null,error:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}
   };
-  recentSession.push(isbn);persist();renderAll();showCapture();
+  recentSession.push(isbn);
+  persist();
+  showCapture();
   if(isFirstEverBook) showFirstScanPrompt();
-  pumpQueue();return true;
+  try{renderAll()}catch(e){console.error('[render after capture]',e)}
+  pumpQueue();
+  return true;
 }
 function pumpQueue(){
   while(activeLookups<MAX_LOOKUPS){
@@ -1055,7 +1060,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'3.6',
+    appVersion:'3.7',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,
@@ -1065,7 +1070,7 @@ function diagnosticPayload(book){
   },null,2);
 }
 async function copyDiagnostics(isbn){
-  const book=data.books.find(b=>b.isbn===isbn);
+  const book=data.books[isbn];
   const payload=diagnosticPayload(book);
   if(!payload)return;
   try{
@@ -1160,7 +1165,12 @@ function statusPills(b,kid=null){
 }
 function bookRow(b,kid=null){
   const actions=[];
-  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar')actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>${book.diagnostics?`<div class="lookup-diagnostics"><strong>Lookup diagnostics</strong><br>${escapeHtml(diagnosticSummary(book))}<button class="secondary" onclick="copyDiagnostics('${book.isbn}')">Copy diagnostics</button></div>`:''}`);
+  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar'){
+    actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>`);
+    if(b.diagnostics){
+      actions.push(`<div class="lookup-diagnostics"><strong>Lookup diagnostics</strong><br>${esc(diagnosticSummary(b))}<button class="secondary copydiag" data-isbn="${b.isbn}">Copy diagnostics</button></div>`);
+    }
+  }
   if(kid&&b.lookupStatus==='found'){
     const ks=kidState(b,kid.id);
     if(ks!=='read')actions.push(`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Mark Read</button>`);
@@ -1183,6 +1193,7 @@ function bookRow(b,kid=null){
 }
 function bindBookActions(scope=document){
   scope.querySelectorAll('.retry').forEach(x=>x.onclick=()=>retry(x.dataset.isbn));
+  scope.querySelectorAll('.copydiag').forEach(x=>x.onclick=()=>copyDiagnostics(x.dataset.isbn));
   scope.querySelectorAll('.kidread').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'read'));
   scope.querySelectorAll('.kidskip').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'not_interested'));
   scope.querySelectorAll('.kidrestore').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'available'));

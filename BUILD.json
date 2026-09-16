@@ -1,8 +1,13 @@
 {
-  "version": "v3.6",
+  "version": "v3.7",
   "build_date": "2026-09-15",
-  "label": "v3.6 \u2022 September 16, 2026",
+  "label": "v3.7 \u2022 September 16, 2026",
   "changes": [
+    "Fixes v3.6 UI rendering regression that could make newly scanned books disappear from Recent Scans and Library",
+    "Corrects diagnostic rendering to use the current book object",
+    "Fixes Copy diagnostics lookup for object-keyed book storage",
+    "Makes capture persistence and lookup queue continue even if a future UI render throws",
+    "No changes to existing library storage, kid profiles, recovery codes, or Railway /data backups",
     "Shows lookup diagnostics for both no-AR and ISBN-mismatch failures",
     "Adds Copy diagnostics button so failed lookups can be pasted back for deterministic debugging",
     "No matching heuristics changed in this release",
