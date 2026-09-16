@@ -1,8 +1,12 @@
 {
-  "version": "v3.4",
+  "version": "v3.5",
   "build_date": "2026-09-15",
-  "label": "v3.4 \u2022 September 16, 2026",
+  "label": "v3.5 \u2022 September 16, 2026",
   "changes": [
+    "Fixes v3.4 ReferenceError: diagnosticSnapshot is not defined",
+    "Ensures collectISBNsFromText() and diagnosticSnapshot() are defined at top level before lookup execution",
+    "Keeps the existing ISBN diagnostic flow unchanged",
+    "No changes to library storage, kid profiles, recovery codes, or Railway /data backups",
     "Fixes v3.3 ReferenceError: isbnDiagnostics is not defined",
     "Moves ISBN diagnostics into the actual performLookup() request scope",
     "Removes accidental diagnostics references from parseAR() and sibling-edition helper",

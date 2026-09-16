@@ -411,6 +411,31 @@ async function findExactResultLink(page,isbn){
   return null;
 }
 
+
+function collectISBNsFromText(text=""){
+  const matches=String(text).toUpperCase().match(/[0-9X][0-9X\-\s]{8,20}[0-9X]/g)||[];
+  const out=[];
+  for(const m of matches){
+    const n=normalizeISBN(m);
+    if((n.length===10||n.length===13) && !out.includes(n)) out.push(n);
+  }
+  return out.slice(0,50);
+}
+
+async function diagnosticSnapshot(page,extra={}){
+  const text=await page.locator("body").innerText().catch(()=>"");
+  return {
+    url:page.url(),
+    title:await page.title().catch(()=>""),
+    containsQuiz:/AR Quiz No\./i.test(text),
+    containsATOS:/ATOS Book Level|Book Level|\bBL\b/i.test(text),
+    isbns:collectISBNsFromText(text),
+    resultLinks:await page.locator('a[href*="bookdetail.aspx" i]').count().catch(()=>0),
+    textPreview:text.slice(0,2200),
+    ...extra
+  };
+}
+
 async function performLookup(isbn,{refresh=false}={}) {
   const hit=cache.get(isbn);
   if(!refresh && hit && Date.now()-hit.time<CACHE_TTL_MS) return {...hit.value,cached:true};
@@ -603,10 +628,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.4.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"3.5.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"3.4.0",
+  version:"3.5.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -652,7 +677,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.4.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v3.5.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
