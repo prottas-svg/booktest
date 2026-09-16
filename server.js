@@ -49,22 +49,66 @@ function isValidISBN(isbn) {
 }
 
 async function lookupBibliographic(isbn) {
+  // 1) Open Library
   try {
     const r = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&jscmd=data&format=json`);
-    if (!r.ok) return null;
-    const j = await r.json();
-    const d = j[`ISBN:${isbn}`];
-    if (!d) return null;
-    return {
-      title: d.title || null,
-      author: Array.isArray(d.authors) ? d.authors.map(a=>a.name).filter(Boolean).join(", ") : null,
-      cover: d.cover?.medium || d.cover?.small || null,
-      pages: d.number_of_pages || null,
-      metadataSource: "Open Library"
-    };
-  } catch {
-    return null;
-  }
+    if (r.ok) {
+      const j = await r.json();
+      const d = j[`ISBN:${isbn}`];
+      if (d?.title) {
+        return {
+          title: d.title || null,
+          author: Array.isArray(d.authors) ? d.authors.map(a=>a.name).filter(Boolean).join(", ") : null,
+          cover: d.cover?.medium || d.cover?.small || null,
+          pages: d.number_of_pages || null,
+          metadataSource: "Open Library"
+        };
+      }
+    }
+  } catch {}
+
+  // 2) Google Books fallback. This is used only for ordinary bibliographic
+  // metadata (title/author/cover/pages), never for AR values.
+  try {
+    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}&maxResults=5`);
+    if (r.ok) {
+      const j = await r.json();
+      const items = Array.isArray(j.items) ? j.items : [];
+      for (const item of items) {
+        const v=item?.volumeInfo||{};
+        if(!v.title) continue;
+
+        // Prefer a record whose industry identifier exactly matches the scanned ISBN.
+        const ids=Array.isArray(v.industryIdentifiers)
+          ? v.industryIdentifiers.map(x=>normalizeISBN(x?.identifier||"")).filter(Boolean)
+          : [];
+        if(ids.length && !ids.includes(normalizeISBN(isbn))) continue;
+
+        return {
+          title:v.title||null,
+          author:Array.isArray(v.authors)?v.authors.filter(Boolean).join(", "):null,
+          cover:v.imageLinks?.thumbnail||v.imageLinks?.smallThumbnail||null,
+          pages:v.pageCount||null,
+          metadataSource:"Google Books"
+        };
+      }
+
+      // If Google returned exactly one ISBN search result but omitted identifiers,
+      // use it for display metadata only.
+      if(items.length===1 && items[0]?.volumeInfo?.title){
+        const v=items[0].volumeInfo;
+        return {
+          title:v.title||null,
+          author:Array.isArray(v.authors)?v.authors.filter(Boolean).join(", "):null,
+          cover:v.imageLinks?.thumbnail||v.imageLinks?.smallThumbnail||null,
+          pages:v.pageCount||null,
+          metadataSource:"Google Books"
+        };
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 function getBrowser() {
@@ -714,7 +758,10 @@ async function diagnosticSnapshot(page,extra={}){
 
 async function performLookup(isbn,{refresh=false}={}) {
   const hit=cache.get(isbn);
-  if(!refresh && hit && Date.now()-hit.time<CACHE_TTL_MS) return {...hit.value,cached:true};
+  const cacheComplete=Boolean(hit?.value?.title && hit?.value?.author);
+  if(!refresh && hit && cacheComplete && Date.now()-hit.time<CACHE_TTL_MS) {
+    return {...hit.value,cached:true};
+  }
 
   const bibPromise=lookupBibliographic(isbn);
   const browser=await getBrowser();
@@ -800,7 +847,7 @@ async function performLookup(isbn,{refresh=false}={}) {
               author:bib?.author||bfIdentity.author||null,
               cover:bib?.cover||null,
               pages:bib?.pages||null,
-              metadataSource:bib?.metadataSource||"Open Library",
+              metadataSource:bib?.metadataSource||"AR Bookfinder",
               arSource:"AR Bookfinder",
               matchBasis:"related_edition_isbn",
               matchedISBN:sibling,
@@ -946,10 +993,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.1.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.2.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"4.1.0",
+  version:"4.2.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -995,7 +1042,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.1.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.2.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

@@ -540,7 +540,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v4.1</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v4.2</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -977,6 +977,7 @@ function repairMissingBookNames(){
     if(n>=5)break;
     if(b.lookupStatus==='found' && !b.title && b.quizNumber){
       b.lookupStatus='queued';
+      b.forceRefresh=true;
       b.error=null;
       n++;
       changed=true;
@@ -1003,7 +1004,8 @@ async function lookupBook(book,refresh=false){
   persist();
   renderAll();
   try{
-    const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(refresh?'?refresh=1':''));
+    const effectiveRefresh=refresh||book.forceRefresh===true;
+    const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(effectiveRefresh?'?refresh=1':''));
     const j=await r.json().catch(()=>({}));
     if(r.ok){
       Object.assign(book,{
@@ -1051,6 +1053,7 @@ async function lookupBook(book,refresh=false){
     book.lookedUpAt=now();
     setOutcome('error',bookTitle(book),book.author,[book.error,diagnosticSummary(book)].filter(Boolean).join(' · '));
   }finally{
+    delete book.forceRefresh;
     activeLookups--;
     persist();
     renderAll();
@@ -1088,7 +1091,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'4.1',
+    appVersion:'4.2',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,

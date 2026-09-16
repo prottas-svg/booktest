@@ -1,8 +1,14 @@
 {
-  "version": "v4.1",
+  "version": "v4.2",
   "build_date": "2026-09-15",
-  "label": "v4.1 \u2022 September 16, 2026",
+  "label": "v4.2 \u2022 September 16, 2026",
   "changes": [
+    "Adds Google Books as a fallback for ordinary title/author metadata when Open Library has no ISBN record",
+    "Keeps AR values sourced only from AR Bookfinder",
+    "Enables Cora's strict title/author fallback even when Open Library metadata is missing",
+    "Stops serving stale 24-hour cache entries when title/author are missing",
+    "Forces refresh of already-successful AR books whose display names are missing",
+    "No changes to library keys, kid profiles, recovery codes, or Railway /data backups",
     "Adds Quick Search ISBN fallback when Advanced Search says No results found",
     "This mirrors the likely manual Bookfinder path that succeeds for Princess Cora",
     "Keeps one-result-plus-AR-fields requirement before accepting a Quick Search ISBN result",
