@@ -93,19 +93,22 @@ function parseBookfinderIdentity(text=""){
     .filter(Boolean);
 
   const qi=lines.findIndex(x=>/AR Quiz No\./i.test(x));
-  if(qi<2) return {title:null,author:null};
+  if(qi<0) return {title:null,author:null};
 
-  // In Bookfinder result rows the two non-empty lines immediately preceding
-  // "AR Quiz No." are normally Author and Title.
-  const author=lines[qi-1] || null;
-  const title=lines[qi-2] || null;
+  const bad=/^(title|author|interest level|book level|relevance|rating|search results|sort by|page \d+ of \d+|next|previous)$/i;
+  const candidates=[];
+  for(let i=qi-1;i>=0 && candidates.length<8;i--){
+    const x=lines[i];
+    if(!x || bad.test(x)) continue;
+    if(/^(IL:|BL:|AR Pts:|AR Quiz Types:)/i.test(x)) continue;
+    if(/^\d+$/.test(x)) continue;
+    candidates.push(x);
+  }
 
-  // Reject obvious table/header labels rather than inventing metadata.
-  const bad=/^(title|author|interest level|book level|relevance|rating|search results)$/i;
-  return {
-    title:title && !bad.test(title) ? title : null,
-    author:author && !bad.test(author) ? author : null
-  };
+  // Nearest useful line is generally author, then title.
+  const author=candidates[0]||null;
+  const title=candidates[1]||null;
+  return {title,author};
 }
 
 function parseAR(text,isbn,finalUrl) {
@@ -530,6 +533,137 @@ function collectISBNsFromText(text=""){
 }
 
 
+
+async function findQuickSearchInput(page){
+  const inputs=page.locator('input[type="text"],input:not([type])');
+  const count=await inputs.count();
+  let best=null,bestScore=-999;
+
+  for(let i=0;i<count;i++){
+    const el=inputs.nth(i);
+    if(!await el.isVisible().catch(()=>false) || !await el.isEnabled().catch(()=>false)) continue;
+    const info=await el.evaluate(node=>{
+      const attrs=[
+        node.id||"",node.name||"",node.placeholder||"",node.getAttribute("aria-label")||""
+      ].join(" ");
+      let nearby="";
+      let p=node.parentElement;
+      for(let n=0;n<4 && p;n++,p=p.parentElement) nearby+=" "+(p.innerText||"");
+      return {attrs,nearby:nearby.slice(0,1200)};
+    }).catch(()=>({attrs:"",nearby:""}));
+
+    const s=(info.attrs+" "+info.nearby).toLowerCase();
+    let score=0;
+    if(/keycode/.test(s)) score-=100;
+    if(/quick search/.test(s)) score+=30;
+    if(/\b(search|keyword|query)\b/.test(info.attrs.toLowerCase())) score+=20;
+    if(/\b(title|author|series|publisher|isbn)\b/.test(info.attrs.toLowerCase())) score-=15;
+    if(score>bestScore){best=el;bestScore=score;}
+  }
+  return bestScore>-50?best:null;
+}
+
+async function submitQuickSearch(page,input){
+  // First look for a Search control in the nearest container that says Quick Search.
+  let container=null;
+  for(const xpath of [
+    'xpath=ancestor::div[contains(translate(.,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"quick search")][1]',
+    'xpath=ancestor::td[contains(translate(.,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"quick search")][1]',
+    'xpath=ancestor::form[1]'
+  ]){
+    const loc=input.locator(xpath);
+    if(await loc.count()){container=loc.first();break;}
+  }
+  if(container){
+    for(const sel of [
+      'input[type="submit"][value="Search" i]',
+      'button[type="submit"]:has-text("Search")',
+      'input[type="submit"][value*="Search" i]',
+      'button:has-text("Search")'
+    ]){
+      const items=container.locator(sel);
+      const count=await items.count();
+      for(let i=0;i<count;i++){
+        const btn=items.nth(i);
+        if(await btn.isVisible().catch(()=>false) && await btn.isEnabled().catch(()=>false)){
+          const meta={
+            method:"quick-button",
+            selector:sel,
+            index:i,
+            id:await btn.getAttribute("id").catch(()=>null),
+            name:await btn.getAttribute("name").catch(()=>null),
+            value:await btn.getAttribute("value").catch(()=>null)
+          };
+          await Promise.all([
+            page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
+            btn.click()
+          ]);
+          await page.waitForTimeout(650);
+          return meta;
+        }
+      }
+    }
+  }
+
+  await Promise.all([
+    page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
+    input.press("Enter")
+  ]);
+  await page.waitForTimeout(650);
+  return {method:"quick-enter-fallback"};
+}
+
+async function searchBookfinderQuickByISBN(page,isbn){
+  // This mirrors the simple search a user performs from Bookfinder's main page.
+  // Some books (notably the Cora test case) are returned there even when
+  // Advanced Search's ISBN field says "No results found."
+  await page.goto("https://www.arbookfind.com/default.aspx?client=PBQN",{
+    waitUntil:"domcontentloaded",timeout:15000
+  });
+
+  const input=await findQuickSearchInput(page);
+  if(!input) return null;
+
+  await input.click({clickCount:3}).catch(()=>{});
+  await input.fill("");
+  await input.type(isbn,{delay:35});
+  const submitMeta=await submitQuickSearch(page,input);
+
+  const searchText=await page.locator("body").innerText().catch(()=>"");
+  const resultCount=parseBookfinderResultCount(searchText);
+  const hasAR=/AR Quiz No\./i.test(searchText);
+
+  const diagnostics=await diagnosticSnapshot(page,{
+    searchedISBN:isbn,
+    searchMode:"quick",
+    submitMeta,
+    fieldValue:await input.inputValue().catch(()=>""),
+    inferredIdentity:parseBookfinderIdentity(searchText)
+  });
+
+  if(resultCount!==1 || !hasAR) return {found:false,diagnostics};
+
+  const identity=parseBookfinderIdentity(searchText);
+  let text=searchText;
+  const detail=await getSingleBookDetailLink(page);
+  if(detail){
+    await detail.click();
+    await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
+    await page.waitForTimeout(500);
+    const detailText=await page.locator("body").innerText().catch(()=>"");
+    if(/AR Quiz No\./i.test(detailText)) text=detailText;
+  }
+
+  const ar=parseAR(text,isbn,page.url());
+  return {
+    found:true,
+    ar,
+    identity,
+    diagnostics,
+    matchBasis:"quick_isbn_unique"
+  };
+}
+
 function parseBookfinderResultCount(text=""){
   const s=String(text);
   // Typical Bookfinder heading: "Title 1 - 1 of 1"
@@ -627,7 +761,32 @@ async function performLookup(isbn,{refresh=false}={}) {
         /no results|no books|did not match|no matches/i.test(searchText)
       )) && !searchHasAR){
 
-      // First try sibling editions of the SAME Open Library work.
+      // First mirror the simple Bookfinder search used by a person on the main page.
+      // Advanced Search and Quick Search do not always return the same record set.
+      try{
+        const quick=await searchBookfinderQuickByISBN(page,isbn);
+        if(quick?.found){
+          const value={
+            ...quick.ar,
+            isbn,
+            title:bib?.title||quick.identity?.title||null,
+            author:bib?.author||quick.identity?.author||null,
+            cover:bib?.cover||null,
+            pages:bib?.pages||null,
+            metadataSource:(bib?.title||bib?.author)?(bib.metadataSource||"Open Library"):"AR Bookfinder",
+            arSource:"AR Bookfinder",
+            matchBasis:"quick_isbn_unique",
+            lookedUpAt:new Date().toISOString()
+          };
+          cache.set(isbn,{time:Date.now(),value});
+          return value;
+        }
+        if(quick?.diagnostics) isbnDiagnostics.quickSearch=quick.diagnostics;
+      }catch(quickErr){
+        console.warn("[quick ISBN fallback]",quickErr?.message||quickErr);
+      }
+
+      // Next try sibling editions of the SAME Open Library work.
       try{
         const siblings=await lookupSiblingISBNs(isbn);
         for(const sibling of siblings){
@@ -787,10 +946,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.0.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.1.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"4.0.0",
+  version:"4.1.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -836,7 +995,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.0.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.1.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

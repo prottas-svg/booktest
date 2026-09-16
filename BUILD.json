@@ -1,8 +1,14 @@
 {
-  "version": "v4.0",
+  "version": "v4.1",
   "build_date": "2026-09-15",
-  "label": "v4.0 \u2022 September 16, 2026",
+  "label": "v4.1 \u2022 September 16, 2026",
   "changes": [
+    "Adds Quick Search ISBN fallback when Advanced Search says No results found",
+    "This mirrors the likely manual Bookfinder path that succeeds for Princess Cora",
+    "Keeps one-result-plus-AR-fields requirement before accepting a Quick Search ISBN result",
+    "Strengthens Bookfinder title/author extraction",
+    "Automatically retries up to five previously successful AR books that are missing display titles",
+    "No changes to library keys, kid profiles, recovery codes, or Railway /data backups",
     "Tests the remaining Cora discrepancy by explicitly establishing a Parent Bookfinder session before ISBN search",
     "Adds Bookfinder role to diagnostics so manual-vs-automated session differences are visible",
     "Keeps exact ISBN search, title/author parsing, unique-result handling, and all user data/backups unchanged",
