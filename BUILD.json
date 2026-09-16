@@ -1,8 +1,13 @@
 {
-  "version": "v4.4",
+  "version": "v4.5",
   "build_date": "2026-09-15",
-  "label": "v4.4 \u2022 September 16, 2026",
+  "label": "v4.5 \u2022 September 16, 2026",
   "changes": [
+    "Fixes a regression in alternate-edition lookup: sibling ISBN searches were still using the old rule that required the ISBN to be printed on Bookfinder's result page",
+    "Alternate ISBN searches now accept exactly one AR result from an exact ISBN query, matching the primary lookup behavior fixed in v3.8",
+    "Records per-alternate ISBN lookup diagnostics",
+    "Keeps conservative rejection when an alternate ISBN query is ambiguous or returns multiple results",
+    "No changes to library storage, kids, recovery codes, or Railway backups",
     "Broadens alternate-ISBN fallback using Open Library's search-index ISBN family when the direct edition endpoint is missing",
     "Tries alternate ISBN-10/ISBN-13 editions before concluding no AR record exists",
     "Adds discovered alternate ISBNs to diagnostics",

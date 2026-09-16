@@ -436,43 +436,75 @@ async function searchBookfinderExactISBN(page,isbn){
   await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
   const input=await findISBNInput(page);
   if(!input) return null;
-  await input.fill(isbn);
-  await submitSearch(page,input);
-  await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-  await page.waitForTimeout(500);
 
-  let searchText=await page.locator("body").innerText();
-  const lower=searchText.toLowerCase();
-  if(/no results|no books|0 results|did not match|no matches/.test(lower)) return null;
+  await input.click({clickCount:3}).catch(()=>{});
+  await input.fill("");
+  await input.type(isbn,{delay:30});
+  const submitMeta=await submitSearch(page,input);
+  await page.waitForTimeout(600);
+
+  let searchText=await page.locator("body").innerText().catch(()=>"");
+  const resultCount=parseBookfinderResultCount(searchText);
+  const hasAR=/AR Quiz No\./i.test(searchText);
+
+  // Definitive no-result page.
+  if((resultCount===0 || /No results found\./i.test(searchText)) && !hasAR){
+    return {found:false,diagnostics:{
+      isbn,submitMeta,resultCount,hasAR,
+      resultLinks:await page.locator('a[href*="bookdetail.aspx" i]').count().catch(()=>0),
+      preview:searchText.slice(0,700)
+    }};
+  }
 
   const verifiedOnSearch=textContainsISBN(searchText,isbn);
+  const uniqueISBNSearchResult=(resultCount===1 && hasAR);
   const exactLink=await findExactResultLink(page,isbn);
-  const detailLinks=page.locator('a[href*="bookdetail.aspx" i]');
-  const count=await detailLinks.count();
+  const singleDetailLink=await getSingleBookDetailLink(page);
   let text=searchText;
 
   if(exactLink){
     await exactLink.click();
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(500);
-    text=await page.locator("body").innerText();
-  }else if(count===1 && verifiedOnSearch){
-    await detailLinks.first().click();
+    await page.waitForTimeout(450);
+    text=await page.locator("body").innerText().catch(()=>searchText);
+  }else if(singleDetailLink && (verifiedOnSearch || uniqueISBNSearchResult)){
+    await singleDetailLink.click();
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(500);
-    text=await page.locator("body").innerText();
+    await page.waitForTimeout(450);
+    text=await page.locator("body").innerText().catch(()=>searchText);
   }
 
-  if(!/AR Quiz No\./i.test(text) && verifiedOnSearch && /AR Quiz No\./i.test(searchText)){
-    text=searchText;
+  // If the result row had the AR fields but the detail page does not, keep the row.
+  if(!/AR Quiz No\./i.test(text) && hasAR) text=searchText;
+  if(!/AR Quiz No\./i.test(text)) {
+    return {found:false,diagnostics:{
+      isbn,submitMeta,resultCount,hasAR:false,
+      resultLinks:await page.locator('a[href*="bookdetail.aspx" i]').count().catch(()=>0),
+      preview:text.slice(0,700)
+    }};
   }
-  if(!/AR Quiz No\./i.test(text)) return null;
-  if(!(verifiedOnSearch || textContainsISBN(text,isbn))) return null;
+
+  // Critical v4.5 change:
+  // an exact ISBN query returning exactly one AR result is accepted even if
+  // Bookfinder does not print the edition ISBN in the result text.
+  if(!(verifiedOnSearch || textContainsISBN(text,isbn) || uniqueISBNSearchResult)){
+    return {found:false,diagnostics:{
+      isbn,submitMeta,resultCount,hasAR:true,reason:"unverified_multiple_or_ambiguous",
+      preview:searchText.slice(0,700)
+    }};
+  }
 
   const ar=parseAR(text,isbn,page.url());
   ar.matchBasis="related_edition_isbn";
   ar.matchedISBN=isbn;
-  return ar;
+  return {
+    found:true,
+    ar,
+    diagnostics:{
+      isbn,submitMeta,resultCount,hasAR:true,
+      acceptedBy:verifiedOnSearch||textContainsISBN(text,isbn)?"visible_isbn":"unique_exact_isbn_search"
+    }
+  };
 }
 
 async function searchBookfinderByTitleAuthor(page,title,author){
@@ -862,8 +894,10 @@ async function performLookup(isbn,{refresh=false}={}) {
       const equivalent10=isbn13To10(isbn);
       if(equivalent10){
         try{
-          const eqAR=await searchBookfinderExactISBN(page,equivalent10);
-          if(eqAR){
+          const eqResult=await searchBookfinderExactISBN(page,equivalent10);
+          if(eqResult?.found){
+            const eqAR=eqResult.ar;
+            isbnDiagnostics.equivalentISBNAttempt=eqResult.diagnostics;
             const value={
               ...eqAR,
               isbn,
@@ -880,6 +914,8 @@ async function performLookup(isbn,{refresh=false}={}) {
             };
             cache.set(isbn,{time:Date.now(),value});
             return value;
+          }else if(eqResult?.diagnostics){
+            isbnDiagnostics.equivalentISBNAttempt=eqResult.diagnostics;
           }
         }catch(eqErr){
           console.warn("[ISBN-10 fallback]",eqErr?.message||eqErr);
@@ -914,9 +950,14 @@ async function performLookup(isbn,{refresh=false}={}) {
       try{
         const siblings=await lookupSiblingISBNs(isbn);
         isbnDiagnostics.siblingCandidates=siblings.slice(0,12);
+        isbnDiagnostics.siblingAttempts=[];
         for(const sibling of siblings){
-          const siblingAR=await searchBookfinderExactISBN(page,sibling);
-          if(siblingAR){
+          const siblingResult=await searchBookfinderExactISBN(page,sibling);
+          if(siblingResult?.diagnostics){
+            if(isbnDiagnostics.siblingAttempts.length<12) isbnDiagnostics.siblingAttempts.push(siblingResult.diagnostics);
+          }
+          if(siblingResult?.found){
+            const siblingAR=siblingResult.ar;
             const siblingBib=bib||await lookupBibliographic(sibling).catch(()=>null);
             return {
               ...siblingAR,
@@ -1072,10 +1113,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.4.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.5.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"4.4.0",
+  version:"4.5.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1129,7 +1170,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.4.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.5.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
