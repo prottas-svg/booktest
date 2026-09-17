@@ -1,8 +1,12 @@
 {
-  "version": "v4.7",
+  "version": "v4.8",
   "build_date": "2026-09-15",
-  "label": "v4.7 \u2022 September 16, 2026",
+  "label": "v4.8 \u2022 September 17, 2026",
   "changes": [
+    "Raises the bounded Express JSON request limit to 5 MB so larger recovery backups are accepted",
+    "Removes bulky transient lookup diagnostics from online recovery backups while preserving all user library/kid data",
+    "Shows the actual server backup error message in Settings",
+    "No changes to AR lookup matching, kid states, library storage keys, or Railway volume path",
     "Removes the old swipe-to-Read / swipe-to-Not-interested interaction from the Kids screen",
     "Removes the visible swipe instruction and hidden swipe labels behind book cards",
     "Kids now use only the explicit Mark Read / Not interested / Make available buttons",
