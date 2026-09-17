@@ -606,7 +606,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v4.8</span><span style="opacity:.55">•</span><span>September 17, 2026</span></div>
+<div class="build"><span>v5.0</span><span style="opacity:.55">•</span><span>September 17, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -762,6 +762,8 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
   <div id="recoveryCodeDisplay" class="recovery-code"></div>
   <div class="small" style="margin-top:6px">Keep this code private. It can restore the household library and kid settings on another device.</div>
   <div class="storage-actions">
+    <button id="copyRecoveryCodeBtn" class="secondary">Copy recovery code</button>
+    <button id="downloadRecoveryCodeBtn" class="secondary">Download recovery code</button>
     <button id="syncNowBtn" class="secondary">Back up now</button>
     <button id="showRestoreBtn" class="secondary">Restore with code</button>
   </div>
@@ -1093,7 +1095,15 @@ async function lookupBook(book,refresh=false){
   renderAll();
   try{
     const effectiveRefresh=refresh||book.forceRefresh===true;
-    const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(effectiveRefresh?'?refresh=1':''));
+    const controller=new AbortController();
+    const lookupTimer=setTimeout(()=>controller.abort(),50000);
+    let r;
+    try{
+      r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(effectiveRefresh?'?refresh=1':''),{signal:controller.signal});
+    }finally{
+      clearTimeout(lookupTimer);
+    }
+
     const j=await r.json().catch(()=>({}));
     if(r.ok){
       Object.assign(book,{
@@ -1126,7 +1136,6 @@ async function lookupBook(book,refresh=false){
       });
       setOutcome('noar',bookTitle(book),book.author,['No AR quiz found for this ISBN.',diagnosticSummary(book)].filter(Boolean).join(' · '));
     }else{
-      // Preserve normal metadata on technical AR failures when backend provides it.
       if(j.title) book.title=j.title;
       if(j.author) book.author=j.author;
       if(j.metadataSource) book.metadataSource=j.metadataSource;
@@ -1137,7 +1146,11 @@ async function lookupBook(book,refresh=false){
     }
   }catch(e){
     book.lookupStatus='error';
-    book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
+    if(e?.name==='AbortError'){
+      book.error='Lookup took too long. Tap Retry lookup.';
+    }else{
+      book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
+    }
     book.lookedUpAt=now();
     setOutcome('error',bookTitle(book),book.author,[book.error,diagnosticSummary(book)].filter(Boolean).join(' · '));
   }finally{
@@ -1148,6 +1161,7 @@ async function lookupBook(book,refresh=false){
     pumpQueue();
   }
 }
+
 $('keepScanningBtn').onclick=()=>{
   dismissFirstScanPrompt();
   if(!$('cameraToggle').checked){
@@ -1179,7 +1193,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'4.8',
+    appVersion:'5.0',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,
@@ -1554,6 +1568,46 @@ renderInstallSettings();
 
 $('syncNowBtn').onclick=()=>backupToServer(true);
 $('showRestoreBtn').onclick=()=>{$('restoreBox').classList.add('show');$('restoreCodeInput').focus()};
+
+async function copyRecoveryCode(){
+  const code=getRecoveryCode();
+  try{
+    await navigator.clipboard.writeText(code);
+    showToast('Recovery code copied');
+  }catch{
+    const ta=document.createElement('textarea');
+    ta.value=code;
+    ta.setAttribute('readonly','');
+    ta.style.position='fixed';
+    ta.style.opacity='0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    showToast('Recovery code copied');
+  }
+}
+
+function downloadRecoveryCode(){
+  const code=getRecoveryCode();
+  const text=`My AR Shelf Recovery Code
+
+${code}
+
+Keep this code private. It can restore your My AR Shelf household library and kid settings on another device.
+`;
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='My AR Shelf Recovery Code.txt';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+  showToast('Recovery code file downloaded');
+}
+
+$('copyRecoveryCodeBtn').onclick=copyRecoveryCode;
+$('downloadRecoveryCodeBtn').onclick=downloadRecoveryCode;
 $('cancelRestoreBtn').onclick=()=>$('restoreBox').classList.remove('show');
 $('restoreBtn').onclick=restoreFromServer;
 

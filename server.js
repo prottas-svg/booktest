@@ -1113,10 +1113,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.8.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.0.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"4.8.0",
+  version:"5.0.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1135,14 +1135,37 @@ app.get("/api/meta/:isbn",async(req,res)=>{
   return res.json({isbn,...bib});
 });
 
+
+const TOTAL_LOOKUP_TIMEOUT_MS=45000;
+
+function withLookupDeadline(promise,ms=TOTAL_LOOKUP_TIMEOUT_MS){
+  let timer;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      const e=new Error("AR lookup took too long. Please retry.");
+      e.code="LOOKUP_TIMEOUT";
+      reject(e);
+    },ms);
+  });
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
+}
+
 app.get("/api/ar/:isbn",async(req,res)=>{
   const isbn=normalizeISBN(req.params.isbn);
   if(!isValidISBN(isbn))return res.status(400).json({error:"Enter a valid ISBN-10 or ISBN-13 (checksum failed)."});
   try{
-    const result=await performLookup(isbn,{refresh:req.query.refresh==="1"});
+    const result=await withLookupDeadline(performLookup(isbn,{refresh:req.query.refresh==="1"}));
     return res.json(result);
   }catch(e){
     console.error(`[lookup ${isbn}]`,e);
+    if(e.code==="LOOKUP_TIMEOUT"){
+      return res.status(504).json({
+        isbn,
+        error:"AR lookup took too long. Please retry.",
+        code:"LOOKUP_TIMEOUT",
+        lookedUpAt:new Date().toISOString()
+      });
+    }
     if(e.code==="NOT_FOUND"){
       const bib=e.bib||await lookupBibliographic(isbn);
       return res.status(404).json({
@@ -1170,7 +1193,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.8.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.0.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
