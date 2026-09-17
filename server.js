@@ -1113,10 +1113,10 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.6.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"4.7.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"4.6.0",
+  version:"4.7.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1170,7 +1170,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.6.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v4.7.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
