@@ -1,8 +1,14 @@
 {
-  "version": "v5.0",
+  "version": "v5.1",
   "build_date": "2026-09-15",
-  "label": "v5.0 \u2022 September 17, 2026",
+  "label": "v5.1 \u2022 September 18, 2026",
   "changes": [
+    "Adds comprehensive anonymous beta telemetry for uptake, activation, feature use, lookup quality, latency, backups, restores, exports and errors",
+    "Adds persistent anonymous install IDs and per-launch session IDs; no child names, recovery codes or backup contents are logged",
+    "Adds a password-protected /admin analytics dashboard with uptake, activation funnel, behavior, reliability, book lookup quality, sessions and installation timelines",
+    "Telemetry writes are fire-and-forget and isolated from scanning, storage, lookup, backup and restore",
+    "Adds beta analytics disclosure in Settings",
+    "Requires Railway variable ANALYTICS_ADMIN_PASSWORD to view /admin",
     "Adds Copy recovery code in Settings",
     "Adds Download recovery code and saves a text file named 'My AR Shelf Recovery Code.txt'",
     "Keeps the existing recovery code, backup, restore, lookup, and library behavior unchanged",

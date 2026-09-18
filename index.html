@@ -61,11 +61,11 @@ nav button.active{background:var(--accentSoft);color:var(--accent)}
 .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}.filters .full{grid-column:1/-1}
 .summary{font-size:13px;color:var(--muted);margin:10px 0 2px}
 
-.book{position:relative;overflow:hidden;border-bottom:1px solid #eee;touch-action:pan-y}
+.book{position:relative;border-bottom:1px solid #eee}
 .book:last-child{border:0}
-.swipe-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:13px;font-weight:850}
-.swipe-bg .read{color:var(--good)}.swipe-bg .skip{color:#7b523a}
-.book-inner{position:relative;background:#fff;padding:13px 0;transition:transform .16s ease}
+
+
+.book-inner{position:relative;background:#fff;padding:13px 0}
 .booktitle{font-weight:850;font-size:17px;line-height:1.25}.bookauthor{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
 .bookmeta{font-size:12px;color:var(--muted);margin-top:4px}
 .pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 8px;background:#efefeb;font-size:12px;margin:5px 3px 0 0}
@@ -76,7 +76,7 @@ nav button.active{background:var(--accentSoft);color:var(--accent)}
 .profile{padding:13px 0;border-bottom:1px solid #eee}.profile:last-child{border:0}
 .rangeInputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rangeInputs label{font-size:12px;color:var(--muted)}
 .kid-heading{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}.kid-range{font-size:21px;font-weight:900}
-.gesture-hint{font-size:11px;color:var(--muted);margin:5px 0 9px}
+
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:50;align-items:flex-end;justify-content:center}
 .modal.open{display:flex}.sheet{background:#fff;width:min(760px,100%);max-height:90%;overflow:auto;border-radius:22px 22px 0 0;padding:18px 15px calc(22px + env(safe-area-inset-bottom))}
 .toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:70;background:#202124;color:#fff;border-radius:14px;padding:10px 12px;display:none;align-items:center;gap:12px;max-width:calc(100% - 28px)}
@@ -326,9 +326,7 @@ nav button.active{
   font-weight:780;
   margin-top:2px;
 }
-.gesture-hint{
-  margin:8px 0 12px;
-}
+
 .profile{
   padding:15px 0;
 }
@@ -507,12 +505,108 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 }
 </style>
 
+
+<style id="v36-diagnostics-style">
+.lookup-diagnostics{
+  margin-top:10px;
+  padding:10px 11px;
+  border-radius:10px;
+  background:#f6f7f6;
+  border:1px solid var(--line);
+  font-size:12px;
+  line-height:1.45;
+  color:var(--muted);
+  word-break:break-word;
+}
+.lookup-diagnostics strong{color:var(--text);font-weight:700}
+.lookup-diagnostics button{
+  margin-top:8px;
+  padding:7px 9px;
+  min-width:auto;
+  font-size:12px;
+}
+</style>
+
+
+<style id="v39-meta-spacing">
+.book-stats,.ar-meta,.book-meta{column-gap:7px}
+.book-stats .sep,.ar-meta .sep,.book-meta .sep{color:var(--muted)}
+</style>
+
+
+<style id="v46-kids-card-fix">
+/* Keep child-state controls from overlapping book text on narrow phones. */
+.kid-book-row,
+.kids-book-row,
+.kid-book-card,
+.kids-book-card{
+  position:relative;
+}
+
+.kid-book-row .book-actions,
+.kids-book-row .book-actions,
+.kid-book-card .book-actions,
+.kids-book-card .book-actions,
+.kid-book-row .kid-actions,
+.kids-book-row .kid-actions,
+.kid-book-card .kid-actions,
+.kids-book-card .kid-actions{
+  position:static !important;
+  margin-top:10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  width:100%;
+}
+
+.kid-book-row .book-actions button,
+.kids-book-row .book-actions button,
+.kid-book-card .book-actions button,
+.kids-book-card .book-actions button,
+.kid-book-row .kid-actions button,
+.kids-book-row .kid-actions button,
+.kid-book-card .kid-actions button,
+.kids-book-card .kid-actions button{
+  max-width:100%;
+  white-space:normal;
+  line-height:1.2;
+}
+
+@media (max-width: 520px){
+  .kid-book-row,
+  .kids-book-row,
+  .kid-book-card,
+  .kids-book-card{
+    display:block !important;
+  }
+
+  .kid-book-row .book-main,
+  .kids-book-row .book-main,
+  .kid-book-card .book-main,
+  .kids-book-card .book-main{
+    width:100%;
+    min-width:0;
+  }
+
+  .kid-book-row .book-actions,
+  .kids-book-row .book-actions,
+  .kid-book-card .book-actions,
+  .kids-book-card .book-actions,
+  .kid-book-row .kid-actions,
+  .kids-book-row .kid-actions,
+  .kid-book-card .kid-actions,
+  .kids-book-card .kid-actions{
+    justify-content:flex-start;
+  }
+}
+</style>
+
 </head>
 <body>
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v3.3</span><span style="opacity:.55">•</span><span>September 16, 2026</span></div>
+<div class="build"><span>v5.1</span><span style="opacity:.55">•</span><span>September 18, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -621,7 +715,6 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
         <button data-kfilter="not_interested">Not interested</button>
         <button data-kfilter="all">All AR books</button>
       </div>
-      <div class="gesture-hint">Swipe left: Read · Swipe right: Not interested</div>
       <div id="kidFilterSummary" class="summary"></div>
     </div>
     <div class="card"><div id="kidBookList"></div></div>
@@ -660,6 +753,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
     <div class="install-step"><span class="install-step-num">3</span><span>Choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</span></div>
   </div>
 </div>
+<div class="small" style="margin:8px 0 14px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fafbf8"><b>Beta analytics:</b> during testing, My AR Shelf records anonymous usage and technical-error events so we can understand what features are used and diagnose failures. It does not collect child names, recovery codes, or backup contents.</div>
 <div class="section-title" style="margin-top:20px">Library protection</div>
 
 <div class="small">Your library stays on this device and is also backed up privately to your My AR Shelf server.</div>
@@ -669,6 +763,8 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
   <div id="recoveryCodeDisplay" class="recovery-code"></div>
   <div class="small" style="margin-top:6px">Keep this code private. It can restore the household library and kid settings on another device.</div>
   <div class="storage-actions">
+    <button id="copyRecoveryCodeBtn" class="secondary">Copy recovery code</button>
+    <button id="downloadRecoveryCodeBtn" class="secondary">Download recovery code</button>
     <button id="syncNowBtn" class="secondary">Back up now</button>
     <button id="showRestoreBtn" class="secondary">Restore with code</button>
   </div>
@@ -766,6 +862,72 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
+const APP_VERSION='5.1';
+const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
+const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
+
+function getTelemetryInstallId(){
+  let id=localStorage.getItem(TELEMETRY_INSTALL_KEY);
+  if(!id){
+    id='i_'+uid()+'_'+Math.random().toString(36).slice(2,10);
+    localStorage.setItem(TELEMETRY_INSTALL_KEY,id);
+  }
+  return id;
+}
+function coarsePlatform(){
+  const ua=navigator.userAgent||'';
+  if(/iPhone|iPad|iPod/i.test(ua))return 'ios';
+  if(/Android/i.test(ua))return 'android';
+  if(/Mac/i.test(ua))return 'mac';
+  if(/Windows/i.test(ua))return 'windows';
+  return 'other';
+}
+function currentDisplayMode(){
+  return (window.matchMedia?.('(display-mode: standalone)').matches||window.navigator.standalone===true)?'standalone':'browser';
+}
+function safeTelemetryProps(props={}){
+  const out={};
+  const forbidden=/recovery|child.?name|kid.?name|backup.?data|library.?data/i;
+  for(const [k,v] of Object.entries(props||{})){
+    if(forbidden.test(k))continue;
+    if(v==null||typeof v==='boolean'||typeof v==='number')out[k]=v;
+    else if(typeof v==='string')out[k]=v.slice(0,300);
+    else if(Array.isArray(v))out[k]=v.slice(0,20).map(x=>typeof x==='string'?x.slice(0,120):x);
+  }
+  return out;
+}
+function trackEvent(eventName,properties={}){
+  try{
+    const payload=JSON.stringify({
+      timestamp:new Date().toISOString(),
+      eventName,
+      installId:getTelemetryInstallId(),
+      sessionId:TELEMETRY_SESSION_ID,
+      appVersion:APP_VERSION,
+      page:currentPage,
+      platform:coarsePlatform(),
+      displayMode:currentDisplayMode(),
+      properties:safeTelemetryProps(properties)
+    });
+    if(navigator.sendBeacon){
+      const ok=navigator.sendBeacon('/api/telemetry',new Blob([payload],{type:'application/json'}));
+      if(ok)return;
+    }
+    fetch('/api/telemetry',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:payload,
+      keepalive:true
+    }).catch(()=>{});
+  }catch{}
+}
+let telemetryDebounceTimer=null;
+function trackDebounced(eventName,properties={},delay=500){
+  clearTimeout(telemetryDebounceTimer);
+  telemetryDebounceTimer=setTimeout(()=>trackEvent(eventName,properties),delay);
+}
+
+
 function makeRecoveryCode(){
   const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes=new Uint8Array(16);
@@ -821,25 +983,46 @@ function scheduleServerBackup(){
   clearTimeout(serverSyncTimer);
   serverSyncTimer=setTimeout(()=>backupToServer(false),900);
 }
+
+function dataForServerBackup(){
+  const copy=JSON.parse(JSON.stringify(data));
+  if(copy?.books){
+    for(const b of Object.values(copy.books)){
+      // Diagnostics are transient debugging data, not user library data.
+      // Excluding them makes recovery backups much smaller and more robust.
+      delete b.diagnostics;
+      delete b.forceRefresh;
+      if(b.lookupStatus==='pending') b.lookupStatus='queued';
+    }
+  }
+  return copy;
+}
+
 async function backupToServer(manual=false){
   if(serverSyncInFlight)return false;
   serverSyncInFlight=true;
+  const telemetryBackupStarted=performance.now();
+  trackEvent('backup_started',{manual});
   renderProtectionStatus('syncing');
   try{
     const code=getRecoveryCode();
     const r=await fetch('/api/backup/'+encodeURIComponent(code),{
       method:'PUT',
       headers:{'content-type':'application/json'},
-      body:JSON.stringify({data,clientUpdatedAt:now()})
+      body:JSON.stringify({data:dataForServerBackup(),clientUpdatedAt:now()})
     });
-    const j=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(j.error||'Backup failed');
+    const raw=await r.text();
+    let j={};
+    try{j=raw?JSON.parse(raw):{}}catch{}
+    if(!r.ok)throw new Error(j.error||j.detail||raw.slice(0,180)||`Backup failed (${r.status})`);
     const ts=j.savedAt||now();
     localStorage.setItem(SERVER_BACKUP_TIME_KEY,ts);
     renderProtectionStatus('ok');
+    trackEvent('backup_success',{manual,durationMs:Math.round(performance.now()-telemetryBackupStarted),bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
     return true;
   }catch(e){
     renderProtectionStatus('error',e.message);
+    trackEvent('backup_failed',{manual,durationMs:Math.round(performance.now()-telemetryBackupStarted),errorType:e?.name||'Error',errorCode:e?.message||'Backup failed'});
     return false;
   }finally{
     serverSyncInFlight=false;
@@ -852,7 +1035,7 @@ function renderProtectionStatus(state='idle',detail=''){
   const last=localStorage.getItem(SERVER_BACKUP_TIME_KEY);
   box.className='protection-status '+(state==='ok'?'ok':state==='error'?'warn':'');
   if(state==='syncing')box.innerHTML='<span class="dot"></span><span>Backing up…</span>';
-  else if(state==='error')box.innerHTML='<span class="dot"></span><span>Saved on device · server backup needs attention</span>';
+  else if(state==='error')box.innerHTML=`<span class="dot"></span><span>Saved on device · server backup needs attention${detail?' — '+esc(detail):''}</span>`;
   else if(last)box.innerHTML='<span class="dot"></span><span>Protected</span>';
   else box.innerHTML='<span class="dot"></span><span>Saved on this device</span>';
   if(time){
@@ -867,6 +1050,8 @@ async function restoreFromServer(){
   const code=cleanRecoveryCode($('restoreCodeInput').value);
   if(!code)return alert('Enter a recovery code.');
   if(!confirm('Replace the library on this device with the recovered library?'))return;
+  const telemetryRestoreStarted=performance.now();
+  trackEvent('restore_started');
   try{
     const r=await fetch('/api/backup/'+encodeURIComponent(code));
     const j=await r.json().catch(()=>({}));
@@ -878,8 +1063,9 @@ async function restoreFromServer(){
     localStorage.setItem(SERVER_BACKUP_TIME_KEY,j.savedAt||now());
     $('restoreBox').classList.remove('show');
     renderAll();renderProtectionStatus('ok');
+    trackEvent('restore_success',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
     alert('Library restored.');
-  }catch(e){alert(e.message||'Restore failed.')}
+  }catch(e){trackEvent('restore_failed',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),errorType:e?.name||'Error',errorCode:e?.message||'Restore failed'});alert(e.message||'Restore failed.')}
 }
 function cleanRecoveryCode(v){
   const raw=String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -918,25 +1104,58 @@ $('undoBtn').onclick=()=>{if(undoState)undoState();undoState=null;$('toast').cla
 function bookTitle(b){return b.title||('ISBN '+b.isbn)}
 function enqueue(raw,source='scan'){
   const isbn=clean(raw);
-  if(!validISBN(isbn))return false;
+  if(!validISBN(isbn)){trackEvent('scan_invalid',{source,length:isbn.length});return false;}
   const isFirstEverBook=Object.keys(data.books).length===0;
   const existing=data.books[isbn];
   if(existing){
     existing.lastScannedAt=now();existing.scanCount=(existing.scanCount||1)+1;
     if(!recentSession.includes(isbn))recentSession.push(isbn);
-    persist();renderAll();
+    persist();
     showCapture('Already saved');
+    try{renderAll()}catch(e){console.error('[render duplicate]',e)}
     setOutcome('duplicate',bookTitle(existing),existing.author,'No duplicate was added.');
+    trackEvent('duplicate_scan',{isbn,source});
     return true;
   }
   data.books[isbn]={
     isbn,lookupStatus:'queued',title:null,author:null,atos:null,points:null,interestLevel:null,quizNumber:null,wordCount:null,
     metadataSource:null,arSource:null,lookedUpAt:null,error:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}
   };
-  recentSession.push(isbn);persist();renderAll();showCapture();
+  recentSession.push(isbn);
+  trackEvent('book_captured',{isbn,source,librarySize:Object.keys(data.books).length});
+  persist();
+  showCapture();
   if(isFirstEverBook) showFirstScanPrompt();
-  pumpQueue();return true;
+  try{renderAll()}catch(e){console.error('[render after capture]',e)}
+  pumpQueue();
+  return true;
 }
+async function repairMissingBookNames(){
+  const missing=Object.values(data.books)
+    .filter(b=>!b.title)
+    .slice(0,12);
+  if(!missing.length)return;
+
+  let changed=false;
+  for(const b of missing){
+    try{
+      const r=await fetch('/api/meta/'+encodeURIComponent(b.isbn));
+      if(!r.ok) continue;
+      const j=await r.json();
+      if(j.title){
+        b.title=j.title;
+        b.author=j.author||b.author||null;
+        b.metadataSource=j.metadataSource||b.metadataSource||null;
+        changed=true;
+      }
+    }catch{}
+  }
+  if(changed){
+    localStorage.setItem(KEY,JSON.stringify(data));
+    renderAll();
+  }
+}
+
 function pumpQueue(){
   while(activeLookups<MAX_LOOKUPS){
     const b=Object.values(data.books).find(x=>x.lookupStatus==='queued');
@@ -946,12 +1165,23 @@ function pumpQueue(){
 }
 async function lookupBook(book,refresh=false){
   activeLookups++;
+  const telemetryLookupStarted=performance.now();
+  trackEvent('lookup_started',{isbn:book.isbn,refresh:Boolean(refresh||book.forceRefresh)});
   book.lookupStatus='pending';
   book.error=null;
   persist();
   renderAll();
   try{
-    const r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(refresh?'?refresh=1':''));
+    const effectiveRefresh=refresh||book.forceRefresh===true;
+    const controller=new AbortController();
+    const lookupTimer=setTimeout(()=>controller.abort(),50000);
+    let r;
+    try{
+      r=await fetch('/api/ar/'+encodeURIComponent(book.isbn)+(effectiveRefresh?'?refresh=1':''),{signal:controller.signal});
+    }finally{
+      clearTimeout(lookupTimer);
+    }
+
     const j=await r.json().catch(()=>({}));
     if(r.ok){
       Object.assign(book,{
@@ -971,7 +1201,8 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
-      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':'')}`);
+      trackEvent('lookup_success',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted),matchBasis:j.matchBasis||'isbn',matchedISBN:j.matchedISBN||null,atos:j.atos,points:j.points});
+      setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':(j.matchBasis==='quick_isbn_unique'?' · ISBN search match':(j.matchBasis==='equivalent_isbn'?' · ISBN equivalent match':''))))}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
         lookupStatus:'no_ar',
@@ -979,11 +1210,12 @@ async function lookupBook(book,refresh=false){
         author:j.author||book.author||null,
         metadataSource:j.metadataSource||'Open Library',
         lookedUpAt:j.lookedUpAt||now(),
+        diagnostics:j.diagnostics||null,
         error:null
       });
-      setOutcome('noar',bookTitle(book),book.author,'The barcode was read correctly. No exact AR result was found for this ISBN.');
+      trackEvent('lookup_no_ar',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted)});
+      setOutcome('noar',bookTitle(book),book.author,['No AR quiz found for this ISBN.',diagnosticSummary(book)].filter(Boolean).join(' · '));
     }else{
-      // Preserve normal metadata on technical AR failures when backend provides it.
       if(j.title) book.title=j.title;
       if(j.author) book.author=j.author;
       if(j.metadataSource) book.metadataSource=j.metadataSource;
@@ -994,16 +1226,28 @@ async function lookupBook(book,refresh=false){
     }
   }catch(e){
     book.lookupStatus='error';
-    book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
+    if(e?.name==='AbortError'){
+      book.error='Lookup took too long. Tap Retry lookup.';
+    }else{
+      book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
+    }
     book.lookedUpAt=now();
+    trackEvent(e?.name==='AbortError'?'lookup_timeout':'lookup_error',{
+      isbn:book.isbn,
+      durationMs:Math.round(performance.now()-telemetryLookupStarted),
+      errorType:e?.name||'Error',
+      errorCode:e?.detail||null
+    });
     setOutcome('error',bookTitle(book),book.author,[book.error,diagnosticSummary(book)].filter(Boolean).join(' · '));
   }finally{
+    delete book.forceRefresh;
     activeLookups--;
     persist();
     renderAll();
     pumpQueue();
   }
 }
+
 $('keepScanningBtn').onclick=()=>{
   dismissFirstScanPrompt();
   if(!$('cameraToggle').checked){
@@ -1021,15 +1265,42 @@ function diagnosticSummary(book){
   const d=book?.diagnostics;
   if(!d)return '';
   const bits=[];
+  if(d.searchedISBN) bits.push(`searched=${d.searchedISBN}`);
   if(d.fieldValue) bits.push(`field=${d.fieldValue}`);
   if(d.submitMeta?.method) bits.push(`submit=${d.submitMeta.method}`);
+  if(d.bookfinderRole) bits.push(`role=${d.bookfinderRole}`);
   if(Number.isFinite(d.resultLinks)) bits.push(`links=${d.resultLinks}`);
-  if(Array.isArray(d.isbns) && d.isbns.length) bits.push(`ISBNs=${d.isbns.slice(0,4).join(',')}`);
-  if(d.containsQuiz) bits.push('AR fields seen');
+  if(Number.isFinite(d.resultCount)) bits.push(`results=${d.resultCount}`);
+  if(Number.isFinite(d.uniqueDetailLinks)) bits.push(`uniqueDetails=${d.uniqueDetailLinks}`);
+  if(Array.isArray(d.isbns) && d.isbns.length) bits.push(`ISBNs=${d.isbns.slice(0,6).join(',')}`);
+  bits.push(`AR fields=${d.containsQuiz?'yes':'no'}`);
   return bits.join(' · ');
 }
+function diagnosticPayload(book){
+  if(!book?.diagnostics)return '';
+  return JSON.stringify({
+    appVersion:'5.1',
+    isbn:book.isbn,
+    title:book.title||null,
+    author:book.author||null,
+    lookupStatus:book.lookupStatus,
+    error:book.error||null,
+    diagnostics:book.diagnostics
+  },null,2);
+}
+async function copyDiagnostics(isbn){
+  const book=data.books[isbn];
+  const payload=diagnosticPayload(book);
+  if(!payload)return;
+  try{
+    await navigator.clipboard.writeText(payload);
+    showToast('Diagnostics copied');
+  }catch{
+    prompt('Copy diagnostics:',payload);
+  }
+}
 
-function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
+function retry(isbn){const b=data.books[isbn];if(!b)return;trackEvent('lookup_retry',{isbn,priorStatus:b.lookupStatus});b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
 
 async function startCamera(){
   if(currentPage!=='scanPage'||!$('cameraToggle').checked||scanning)return;
@@ -1051,9 +1322,11 @@ async function startCamera(){
       }
     },()=>{});
     $('cameraToggleText').textContent='Camera on';
+    trackEvent('camera_started');
   }catch(e){
     scanning=false;$('cameraToggle').checked=false;$('cameraToggleText').textContent='Camera off';
     $('readerShell').style.display='none';$('cameraOff').style.display='flex';
+    trackEvent('camera_error',{errorType:e?.name||'Error'});
     setOutcome('error','Camera could not start',null,'Check camera permission and try again.');
   }
 }
@@ -1063,7 +1336,9 @@ async function stopCamera(){
     try{await scanner.stop()}catch{}
     try{await scanner.clear()}catch{}
   }
+  const wasScanning=scanning;
   scanner=null;scanning=false;
+  if(wasScanning)trackEvent('camera_stopped',{capturedThisSession:sessionCapturedCount});
   document.querySelectorAll('video').forEach(v=>{const s=v.srcObject;if(s?.getTracks)s.getTracks().forEach(t=>t.stop());v.srcObject=null});
   $('readerShell').style.display='none';$('cameraOff').style.display='flex';
 }
@@ -1082,7 +1357,7 @@ $('cameraToggle').addEventListener('change',async()=>{
     maybeAutoBackup();
   }
 });
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){trackEvent('app_background');stopCamera()}else{trackEvent('app_foreground')}});
 window.addEventListener('pagehide',stopCamera);
 
 function kidState(b,kidId){return b.kidState?.[kidId]||'available'}
@@ -1090,7 +1365,7 @@ function setKidState(isbn,kidId,state){
   const b=data.books[isbn];if(!b)return;
   b.kidState=b.kidState||{};
   const prev=b.kidState[kidId]||'available';
-  b.kidState[kidId]=state;persist();renderAll();
+  b.kidState[kidId]=state;trackEvent('kid_book_state_changed',{isbn,state,previousState:prev});persist();renderAll();
   const label=state==='read'?'Marked Read':'Marked Not interested';
   showToast(label,()=>{b.kidState[kidId]=prev;persist();renderAll()});
 }
@@ -1113,7 +1388,12 @@ function statusPills(b,kid=null){
 }
 function bookRow(b,kid=null){
   const actions=[];
-  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar')actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>`);
+  if(b.lookupStatus==='error'||b.lookupStatus==='no_ar'){
+    actions.push(`<button class="secondary retry" data-isbn="${b.isbn}">Retry lookup</button>`);
+    if(b.diagnostics){
+      actions.push(`<div class="lookup-diagnostics"><strong>Lookup diagnostics</strong><br>${esc(diagnosticSummary(b))}<button class="secondary copydiag" data-isbn="${b.isbn}">Copy diagnostics</button></div>`);
+    }
+  }
   if(kid&&b.lookupStatus==='found'){
     const ks=kidState(b,kid.id);
     if(ks!=='read')actions.push(`<button class="secondary kidread" data-isbn="${b.isbn}" data-kid="${kid.id}">Mark Read</button>`);
@@ -1122,7 +1402,6 @@ function bookRow(b,kid=null){
   }
   const prov=b.lookedUpAt?`Checked ${new Date(b.lookedUpAt).toLocaleDateString()}${b.lookupStatus==='found'?' · AR data: AR Bookfinder':''}${b.metadataSource&&b.metadataSource!=='AR Bookfinder'?' · Book metadata: '+esc(b.metadataSource):''}`:'';
   return `<div class="book" data-isbn="${b.isbn}" ${kid?`data-kid="${kid.id}"`:''}>
-    ${kid?`<div class="swipe-bg"><span class="read">Not interested →</span><span class="skip">← Read</span></div>`:''}
     <div class="book-inner">
       <div class="booktitle">${esc(bookTitle(b))}</div>
       ${b.author?`<div class="bookauthor">${esc(b.author)}</div>`:''}
@@ -1136,19 +1415,10 @@ function bookRow(b,kid=null){
 }
 function bindBookActions(scope=document){
   scope.querySelectorAll('.retry').forEach(x=>x.onclick=()=>retry(x.dataset.isbn));
+  scope.querySelectorAll('.copydiag').forEach(x=>x.onclick=()=>copyDiagnostics(x.dataset.isbn));
   scope.querySelectorAll('.kidread').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'read'));
   scope.querySelectorAll('.kidskip').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'not_interested'));
   scope.querySelectorAll('.kidrestore').forEach(x=>x.onclick=()=>setKidState(x.dataset.isbn,x.dataset.kid,'available'));
-  scope.querySelectorAll('.book[data-kid]').forEach(el=>{
-    let sx=0,sy=0;
-    const inner=el.querySelector('.book-inner');
-    el.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});
-    el.addEventListener('touchmove',e=>{const dx=e.touches[0].clientX-sx,dy=e.touches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy)*1.3)inner.style.transform=`translateX(${Math.max(-105,Math.min(105,dx))}px)`},{passive:true});
-    el.addEventListener('touchend',e=>{
-      const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;inner.style.transform='';
-      if(Math.abs(dx)>85&&Math.abs(dx)>Math.abs(dy)*1.35)setKidState(el.dataset.isbn,el.dataset.kid,dx<0?'read':'not_interested');
-    });
-  });
 }
 
 function renderScan(){
@@ -1240,18 +1510,21 @@ function saveKid(){
   if(!name)return alert('Enter a name.');
   const min=minV===''?null:Number(minV),max=maxV===''?null:Number(maxV);
   if(min!=null&&max!=null&&min>max)return alert('Minimum AR level must be below maximum.');
+  const wasEditing=Boolean(editingKid);
   if(editingKid){
     if(editingKid.min!==min||editingKid.max!==max){editingKid.history=editingKid.history||[];editingKid.history.push({date:now(),min:editingKid.min,max:editingKid.max})}
     Object.assign(editingKid,{name,min,max,updatedAt:now()});
   }else{
     const k={id:uid(),name,min,max,history:[],createdAt:now(),updatedAt:now()};data.kids.push(k);selectedKidId=k.id;
   }
+  trackEvent(wasEditing?'child_updated':'child_created',{hasMin:min!=null,hasMax:max!=null,kidCount:data.kids.length});
   persist();$('kidModal').classList.remove('open');editingKid=null;renderAll();
 }
 function deleteKid(){
   if(!editingKid||!confirm('Delete this child profile? Household books will remain.'))return;
   const id=editingKid.id;data.kids=data.kids.filter(k=>k.id!==id);Object.values(data.books).forEach(b=>{if(b.kidState)delete b.kidState[id]});
   if(selectedKidId===id)selectedKidId=data.kids[0]?.id||null;
+  trackEvent('child_deleted',{kidCount:data.kids.length});
   persist();$('kidModal').classList.remove('open');editingKid=null;renderAll();
 }
 
@@ -1259,6 +1532,7 @@ async function showPage(id){
   const leavingScan=(currentPage==='scanPage' && id!=='scanPage');
   if(leavingScan) maybeAutoBackup();
   currentPage=id;
+  trackEvent('page_view',{page:id});
   document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));
   if(id!=='scanPage'){await stopCamera();$('cameraToggle').checked=false}
@@ -1326,6 +1600,7 @@ function downloadCsvBackup(reason='manual'){
   localStorage.setItem(LAST_BACKUP_KEY,ts);
   sessionBackupDone=true;
   renderBackupStatus();
+  trackEvent('csv_exported',{reason,bookCount:Object.keys(data.books).length});
   return filename;
 }
 function autoBackupEnabled(){
@@ -1348,20 +1623,23 @@ function renderBackupStatus(){
 
 function exportBackup(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='my-ar-shelf-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob);a.download='my-ar-shelf-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);trackEvent('json_exported',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
 }
 
 $('addIsbnBtn').onclick=()=>{const ok=enqueue($('isbnInput').value,'manual');if(ok)$('isbnInput').value='';else alert('Enter a valid ISBN-10 or ISBN-13.')};
 $('isbnInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('addIsbnBtn').click()});
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 ['librarySearch','libraryStatus','librarySort'].forEach(id=>$(id).addEventListener('input',renderLibrary));
+$('libraryStatus').addEventListener('change',()=>trackEvent('library_status_filter',{value:$('libraryStatus').value}));
+$('librarySort').addEventListener('change',()=>trackEvent('library_sort_changed',{value:$('librarySort').value}));
+$('librarySearch').addEventListener('input',()=>trackDebounced('library_search_used',{queryLength:$('librarySearch').value.trim().length},650));
 $('addKidQuickBtn').onclick=()=>openKid();
 $('editSelectedKid').onclick=()=>{if(selectedKidId)openKid(selectedKidId)};
-$('kidFilterTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{kidFilter=b.dataset.kfilter;renderKids()});
+$('kidFilterTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{kidFilter=b.dataset.kfilter;trackEvent('kid_filter_changed',{filter:kidFilter});renderKids()});
 $('kidSaveBtn').onclick=saveKid;
 $('kidCancelBtn').onclick=()=>{$('kidModal').classList.remove('open');editingKid=null};
 $('kidModal').onclick=e=>{if(e.target===$('kidModal')){$('kidModal').classList.remove('open');editingKid=null}};
-$('checkBtn').onclick=checkServer;
+$('checkBtn').onclick=()=>{trackEvent('server_check');checkServer()};
 
 function isStandaloneApp(){
   return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
@@ -1380,6 +1658,7 @@ function renderInstallSettings(){
   }
 }
 $('installHelpBtn').onclick=()=>{
+  trackEvent('install_help_opened',{standalone:isStandaloneApp()});
   $('installInstructions').classList.toggle('show');
   $('installHelpBtn').textContent=$('installInstructions').classList.contains('show')?'Hide':'How';
 };
@@ -1388,6 +1667,49 @@ renderInstallSettings();
 
 $('syncNowBtn').onclick=()=>backupToServer(true);
 $('showRestoreBtn').onclick=()=>{$('restoreBox').classList.add('show');$('restoreCodeInput').focus()};
+
+async function copyRecoveryCode(){
+  const code=getRecoveryCode();
+  try{
+    await navigator.clipboard.writeText(code);
+    trackEvent('recovery_code_copy');
+    trackEvent('recovery_code_copy');
+    showToast('Recovery code copied');
+  }catch{
+    const ta=document.createElement('textarea');
+    ta.value=code;
+    ta.setAttribute('readonly','');
+    ta.style.position='fixed';
+    ta.style.opacity='0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    showToast('Recovery code copied');
+  }
+}
+
+function downloadRecoveryCode(){
+  const code=getRecoveryCode();
+  const text=`My AR Shelf Recovery Code
+
+${code}
+
+Keep this code private. It can restore your My AR Shelf household library and kid settings on another device.
+`;
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='My AR Shelf Recovery Code.txt';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+  trackEvent('recovery_code_download');
+  showToast('Recovery code file downloaded');
+}
+
+$('copyRecoveryCodeBtn').onclick=copyRecoveryCode;
+$('downloadRecoveryCodeBtn').onclick=downloadRecoveryCode;
 $('cancelRestoreBtn').onclick=()=>$('restoreBox').classList.remove('show');
 $('restoreBtn').onclick=restoreFromServer;
 
@@ -1397,9 +1719,27 @@ $('autoBackupToggle').addEventListener('change',()=>{
   renderBackupStatus();
 });
 $('exportBtn').onclick=exportBackup;
-$('eraseBtn').onclick=()=>{if(confirm('Erase the entire local household library and all child profiles?')){localStorage.removeItem(KEY);location.reload()}};
+$('eraseBtn').onclick=()=>{
+  if(!confirm('Erase the entire local household library and all child profiles from this device? Your online recovery backup will remain available.')) return;
+  trackEvent('local_data_erased',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
+  clearTimeout(serverSyncTimer);
+  localStorage.removeItem(KEY);
+  localStorage.removeItem(TELEMETRY_INSTALL_KEY);
+  for(const key of OLD_KEYS) localStorage.removeItem(key);
+  data=freshData();
+  recentSession.length=0;
+  activeLookups=0;
+  selectedKidId=null;
+  sessionCapturedCount=0;
+  sessionBackupDone=false;
+  renderAll();
+  showToast('Local library erased');
+};
 
 renderAll();pumpQueue();
+trackEvent('app_open',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
+trackEvent('page_view',{page:currentPage});
+setTimeout(()=>repairMissingBookNames(),800);
 </script>
 
 <script id="v21-behavior">

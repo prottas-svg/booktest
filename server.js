@@ -16,6 +16,139 @@ const cache = new Map();
 const BACKUP_DIR = process.env.BACKUP_DIR || "/data/backups";
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 
+const TELEMETRY_DIR = process.env.TELEMETRY_DIR || "/data/telemetry";
+const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
+const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
+const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
+const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
+
+async function ensureTelemetryDir(){
+  await fs.mkdir(TELEMETRY_DIR,{recursive:true});
+}
+
+function safeTelemetryString(value,max=300){
+  return String(value??"").slice(0,max);
+}
+
+function sanitizeTelemetryProperties(input){
+  if(!input || typeof input!=="object" || Array.isArray(input)) return {};
+  const out={};
+  const forbidden=/recovery|child[_-]?name|kid[_-]?name|backup[_-]?data|library[_-]?data|full[_-]?title/i;
+  let count=0;
+  for(const [rawKey,rawVal] of Object.entries(input)){
+    if(count>=24) break;
+    const key=safeTelemetryString(rawKey,60).replace(/[^a-zA-Z0-9_.-]/g,"_");
+    if(!key || forbidden.test(key)) continue;
+    if(rawVal==null || typeof rawVal==="boolean" || typeof rawVal==="number"){
+      out[key]=rawVal;
+    }else if(typeof rawVal==="string"){
+      out[key]=safeTelemetryString(rawVal,300);
+    }else if(Array.isArray(rawVal)){
+      out[key]=rawVal.slice(0,20).map(v=>{
+        if(v==null || typeof v==="boolean" || typeof v==="number") return v;
+        return safeTelemetryString(v,120);
+      });
+    }
+    count++;
+  }
+  return out;
+}
+
+function normalizeTelemetryEvent(body){
+  if(!body || typeof body!=="object") return null;
+  const eventName=safeTelemetryString(body.eventName,80);
+  const installId=safeTelemetryString(body.installId,80);
+  const sessionId=safeTelemetryString(body.sessionId,80);
+  if(!/^[a-z0-9_.-]{2,80}$/i.test(eventName)) return null;
+  if(!/^[a-z0-9_-]{6,80}$/i.test(installId)) return null;
+  if(!/^[a-z0-9_-]{6,80}$/i.test(sessionId)) return null;
+  const tsRaw=Date.parse(body.timestamp||"");
+  const timestamp=Number.isFinite(tsRaw)?new Date(tsRaw).toISOString():new Date().toISOString();
+  return {
+    timestamp,
+    receivedAt:new Date().toISOString(),
+    eventName,
+    installId,
+    sessionId,
+    appVersion:safeTelemetryString(body.appVersion,30),
+    page:safeTelemetryString(body.page,50),
+    platform:safeTelemetryString(body.platform,30),
+    displayMode:safeTelemetryString(body.displayMode,30),
+    properties:sanitizeTelemetryProperties(body.properties)
+  };
+}
+
+async function rotateTelemetryIfNeeded(){
+  try{
+    const st=await fs.stat(TELEMETRY_FILE);
+    if(st.size<TELEMETRY_ROTATE_BYTES) return;
+    await fs.rm(TELEMETRY_ARCHIVE_FILE,{force:true}).catch(()=>{});
+    await fs.rename(TELEMETRY_FILE,TELEMETRY_ARCHIVE_FILE);
+  }catch(e){
+    if(e?.code!=="ENOENT") console.error("[telemetry rotate]",e);
+  }
+}
+
+async function appendTelemetry(event){
+  try{
+    await ensureTelemetryDir();
+    await rotateTelemetryIfNeeded();
+    await fs.appendFile(TELEMETRY_FILE,JSON.stringify(event)+"\n","utf8");
+  }catch(e){
+    // Telemetry must never affect the app.
+    console.error("[telemetry write]",e?.message||e);
+  }
+}
+
+async function readTelemetryEvents(){
+  await ensureTelemetryDir();
+  const files=[TELEMETRY_ARCHIVE_FILE,TELEMETRY_FILE];
+  const out=[];
+  for(const f of files){
+    try{
+      const raw=await fs.readFile(f,"utf8");
+      for(const line of raw.split(/\n/)){
+        if(!line.trim()) continue;
+        try{out.push(JSON.parse(line))}catch{}
+      }
+    }catch(e){
+      if(e?.code!=="ENOENT") console.error("[telemetry read]",e);
+    }
+  }
+  out.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)));
+  return out.slice(-100000);
+}
+
+function adminAuthorized(req){
+  const password=process.env.ANALYTICS_ADMIN_PASSWORD||"";
+  if(!password) return false;
+  const auth=req.headers.authorization||"";
+  if(!auth.startsWith("Basic ")) return false;
+  try{
+    const decoded=Buffer.from(auth.slice(6),"base64").toString("utf8");
+    const i=decoded.indexOf(":");
+    const user=i>=0?decoded.slice(0,i):"";
+    const pass=i>=0?decoded.slice(i+1):"";
+    const a=Buffer.from(pass);
+    const b=Buffer.from(password);
+    return user==="admin" && a.length===b.length && crypto.timingSafeEqual(a,b);
+  }catch{return false}
+}
+
+function requireAdmin(req,res,next){
+  if(!process.env.ANALYTICS_ADMIN_PASSWORD){
+    return res.status(503).type("text").send(
+      "Analytics dashboard is not configured. Set Railway variable ANALYTICS_ADMIN_PASSWORD, redeploy, then open /admin again."
+    );
+  }
+  if(!adminAuthorized(req)){
+    res.set("WWW-Authenticate",'Basic realm="My AR Shelf Analytics"');
+    return res.status(401).send("Authentication required.");
+  }
+  next();
+}
+
+
 async function ensureBackupDir(){
   await fs.mkdir(BACKUP_DIR,{recursive:true});
 }
@@ -1113,10 +1246,198 @@ app.get("/api/backup/:code", async (req,res)=>{
   }
 });
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.0.0",time:new Date().toISOString()}));
+
+app.post("/api/telemetry",async(req,res)=>{
+  try{
+    const approx=Buffer.byteLength(JSON.stringify(req.body||{}),"utf8");
+    if(approx>MAX_TELEMETRY_BODY_BYTES) return res.status(413).end();
+    const event=normalizeTelemetryEvent(req.body);
+    if(!event) return res.status(400).end();
+    // Send the response immediately; persistence is best-effort.
+    res.status(204).end();
+    void appendTelemetry(event);
+  }catch{
+    // Telemetry failure should not surface to the product.
+    if(!res.headersSent) res.status(204).end();
+  }
+});
+
+app.get("/api/admin/analytics",requireAdmin,async(_req,res)=>{
+  const events=await readTelemetryEvents();
+  res.json({ok:true,events});
+});
+
+function analyticsAdminHtml(){
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My AR Shelf Analytics</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#20221f;background:#f4f5f2}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:1280px;margin:auto;padding:24px}
+h1{margin:0 0 4px;font-size:28px}.sub{color:#6c7069;margin-bottom:20px}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 20px}
+select,button{font:inherit;padding:9px 12px;border:1px solid #d8dbd4;border-radius:10px;background:#fff}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}
+.card{background:#fff;border:1px solid #e2e4de;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.035)}
+.metric b{display:block;font-size:27px;margin-bottom:4px}.metric span{color:#73776f;font-size:13px}
+.section{margin:20px 0}.section h2{font-size:19px;margin:0 0 10px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px 7px;border-bottom:1px solid #eceee9;vertical-align:top}th{color:#666b63;font-size:12px}
+.barrow{display:grid;grid-template-columns:145px 1fr 55px;gap:8px;align-items:center;margin:8px 0;font-size:13px}.bar{height:9px;background:#eceee9;border-radius:999px;overflow:hidden}.bar>i{display:block;height:100%;background:#687d68}
+.good{color:#35623b}.bad{color:#9a4038}.muted{color:#73776f}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.timeline{max-height:420px;overflow:auto}.timeline div{padding:7px 0;border-bottom:1px solid #eee;font-size:12px}
+.clickable{cursor:pointer;text-decoration:underline;text-decoration-style:dotted}
+@media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body><div class="wrap">
+<h1>My AR Shelf Analytics</h1>
+<div class="sub">Anonymous beta usage, product behavior, reliability and lookup quality. No recovery codes or child names are collected.</div>
+<div class="toolbar">
+<select id="window"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="9999">All time</option></select>
+<select id="version"><option value="">All versions</option></select>
+<button id="refresh">Refresh</button>
+</div>
+<div id="metrics" class="grid"></div>
+<div class="section"><h2>Activation & uptake</h2><div class="card" id="funnel"></div></div>
+<div class="cols">
+<div class="section"><h2>Behavior</h2><div class="card"><div id="behavior"></div></div></div>
+<div class="section"><h2>Reliability</h2><div class="card"><div id="reliability"></div></div></div>
+</div>
+<div class="section"><h2>Book / lookup quality</h2><div class="card" id="books"></div></div>
+<div class="section"><h2>Recent sessions</h2><div class="card" id="sessions"></div></div>
+<div class="section"><h2>Selected installation timeline</h2><div class="card timeline" id="timeline"><span class="muted">Click an installation in Recent sessions.</span></div></div>
+</div>
+<script>
+let raw=[];
+const $=id=>document.getElementById(id);
+const uniq=a=>new Set(a).size;
+function pct(a,b){return b?Math.round(a/b*100):0}
+function dt(e){return new Date(e.timestamp)}
+function filtered(){
+ const days=Number($("window").value), v=$("version").value;
+ const cutoff=Date.now()-days*86400000;
+ return raw.filter(e=>dt(e).getTime()>=cutoff && (!v||e.appVersion===v));
+}
+function quantile(vals,q){
+ const a=vals.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return null;
+ return a[Math.min(a.length-1,Math.floor((a.length-1)*q))];
+}
+function countBy(events,keyFn){
+ const m=new Map(); for(const e of events){const k=keyFn(e)||"unknown";m.set(k,(m.get(k)||0)+1)} return [...m.entries()].sort((a,b)=>b[1]-a[1]);
+}
+function bars(rows){
+ if(!rows.length)return '<span class="muted">No data yet.</span>';
+ const max=Math.max(...rows.map(x=>x[1]),1);
+ return rows.slice(0,12).map(([k,n])=>'<div class="barrow"><span>'+esc(k)+'</span><div class="bar"><i style="width:'+Math.round(n/max*100)+'%"></i></div><b>'+n+'</b></div>').join('');
+}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function render(){
+ const ev=filtered();
+ const installs=uniq(ev.map(e=>e.installId)), sessions=uniq(ev.map(e=>e.sessionId));
+ const scans=ev.filter(e=>e.eventName==="book_captured").length;
+ const lookups=ev.filter(e=>["lookup_success","lookup_no_ar","lookup_error","lookup_timeout"].includes(e.eventName));
+ const ok=lookups.filter(e=>e.eventName==="lookup_success").length;
+ const backup=ev.filter(e=>["backup_success","backup_failed"].includes(e.eventName));
+ const backupOK=backup.filter(e=>e.eventName==="backup_success").length;
+ const activeDaysByInstall=new Map();
+ for(const e of ev){const d=e.timestamp.slice(0,10);if(!activeDaysByInstall.has(e.installId))activeDaysByInstall.set(e.installId,new Set());activeDaysByInstall.get(e.installId).add(d)}
+ const returning=[...activeDaysByInstall.values()].filter(s=>s.size>=2).length;
+ $("metrics").innerHTML=[
+ ["Active installs",installs],
+ ["Sessions",sessions],
+ ["Books captured",scans],
+ ["Returning installs",returning],
+ ["Lookup success",pct(ok,lookups.length)+"%"],
+ ["Backup success",pct(backupOK,backup.length)+"%"],
+ ["Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length],
+ ["Restores",ev.filter(e=>e.eventName==="restore_success").length]
+ ].map(([l,v])=>'<div class="card metric"><b>'+v+'</b><span>'+l+'</span></div>').join('');
+
+ const byInstall=new Map();
+ for(const e of ev){if(!byInstall.has(e.installId))byInstall.set(e.installId,[]);byInstall.get(e.installId).push(e)}
+ const total=byInstall.size;
+ const stages=[
+  ["Opened app",x=>x.some(e=>e.eventName==="app_open")],
+  ["Captured ≥1 book",x=>x.some(e=>e.eventName==="book_captured")],
+  ["Captured ≥5 books",x=>x.filter(e=>e.eventName==="book_captured").length>=5],
+  ["Created a child",x=>x.some(e=>e.eventName==="child_created")],
+  ["Used Kids screen",x=>x.some(e=>e.eventName==="page_view"&&e.properties?.page==="kidsPage")],
+  ["Successful online backup",x=>x.some(e=>e.eventName==="backup_success")],
+  ["Saved recovery code",x=>x.some(e=>["recovery_code_copy","recovery_code_download"].includes(e.eventName))],
+  ["Returned another day",x=>new Set(x.map(e=>e.timestamp.slice(0,10))).size>=2]
+ ];
+ $("funnel").innerHTML='<table><tr><th>Milestone</th><th>Installs</th><th>% of active installs</th></tr>'+
+ stages.map(([name,fn])=>{const n=[...byInstall.values()].filter(fn).length;return '<tr><td>'+name+'</td><td>'+n+'</td><td>'+pct(n,total)+'%</td></tr>'}).join('')+'</table>';
+
+ const behaviorEvents=ev.filter(e=>!["app_open","lookup_started","lookup_success","lookup_no_ar","lookup_error","lookup_timeout"].includes(e.eventName));
+ $("behavior").innerHTML='<b>Top actions</b>'+bars(countBy(behaviorEvents,e=>e.eventName))+
+ '<div style="height:12px"></div><b>Pages viewed</b>'+bars(countBy(ev.filter(e=>e.eventName==="page_view"),e=>e.properties?.page));
+
+ const durations=lookups.map(e=>Number(e.properties?.durationMs)).filter(Number.isFinite);
+ const match=ev.filter(e=>e.eventName==="lookup_success");
+ const errs=ev.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName));
+ $("reliability").innerHTML=
+ '<table><tr><th>Metric</th><th>Value</th></tr>'+
+ '<tr><td>Lookup p50</td><td>'+(quantile(durations,.5)?.toFixed(0)||"—")+' ms</td></tr>'+
+ '<tr><td>Lookup p90</td><td>'+(quantile(durations,.9)?.toFixed(0)||"—")+' ms</td></tr>'+
+ '<tr><td>Lookup p95</td><td>'+(quantile(durations,.95)?.toFixed(0)||"—")+' ms</td></tr>'+
+ '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout").length+'</td></tr>'+
+ '<tr><td>Backup failures</td><td>'+ev.filter(e=>e.eventName==="backup_failed").length+'</td></tr>'+
+ '<tr><td>Restore failures</td><td>'+ev.filter(e=>e.eventName==="restore_failed").length+'</td></tr></table>'+
+ '<div style="height:12px"></div><b>Successful match paths</b>'+bars(countBy(match,e=>e.properties?.matchBasis||"isbn"))+
+ '<div style="height:12px"></div><b>Error types</b>'+bars(countBy(errs,e=>e.properties?.errorCode||e.properties?.errorType||"error"));
+
+ const scansByISBN=new Map();
+ for(const e of ev.filter(e=>e.properties?.isbn)){
+   const isbn=e.properties.isbn;
+   if(!scansByISBN.has(isbn))scansByISBN.set(isbn,{isbn,captured:0,ok:0,noar:0,errors:0,alt:0});
+   const r=scansByISBN.get(isbn);
+   if(e.eventName==="book_captured")r.captured++;
+   if(e.eventName==="lookup_success"){r.ok++;if(e.properties?.matchBasis&&e.properties.matchBasis!=="isbn")r.alt++}
+   if(e.eventName==="lookup_no_ar")r.noar++;
+   if(["lookup_error","lookup_timeout"].includes(e.eventName))r.errors++;
+ }
+ const bookRows=[...scansByISBN.values()].sort((a,b)=>(b.errors+b.noar+b.captured)-(a.errors+a.noar+a.captured)).slice(0,30);
+ $("books").innerHTML='<table><tr><th>ISBN</th><th>Captured</th><th>AR success</th><th>No AR</th><th>Errors</th><th>Alt-edition hits</th></tr>'+
+ bookRows.map(r=>'<tr><td class="mono">'+esc(r.isbn)+'</td><td>'+r.captured+'</td><td>'+r.ok+'</td><td>'+r.noar+'</td><td>'+r.errors+'</td><td>'+r.alt+'</td></tr>').join('')+'</table>';
+
+ const sessMap=new Map();
+ for(const e of ev){if(!sessMap.has(e.sessionId))sessMap.set(e.sessionId,[]);sessMap.get(e.sessionId).push(e)}
+ const sess=[...sessMap.values()].map(x=>({
+   sessionId:x[0].sessionId, installId:x[0].installId, last:x[x.length-1].timestamp,
+   events:x.length, scans:x.filter(e=>e.eventName==="book_captured").length,
+   errors:x.filter(e=>["lookup_error","lookup_timeout","backup_failed","restore_failed"].includes(e.eventName)).length
+ })).sort((a,b)=>b.last.localeCompare(a.last)).slice(0,30);
+ $("sessions").innerHTML='<table><tr><th>Last seen</th><th>Installation</th><th>Events</th><th>Scans</th><th>Errors</th></tr>'+
+ sess.map(s=>'<tr><td>'+new Date(s.last).toLocaleString()+'</td><td><span class="clickable mono" data-install="'+esc(s.installId)+'">'+esc(s.installId.slice(0,10))+'…</span></td><td>'+s.events+'</td><td>'+s.scans+'</td><td>'+s.errors+'</td></tr>').join('')+'</table>';
+ document.querySelectorAll("[data-install]").forEach(x=>x.onclick=()=>renderTimeline(x.dataset.install));
+}
+function renderTimeline(id){
+ const ev=filtered().filter(e=>e.installId===id).slice(-250).reverse();
+ $("timeline").innerHTML=ev.length?ev.map(e=>'<div><b>'+new Date(e.timestamp).toLocaleString()+'</b> · '+esc(e.eventName)+' · <span class="muted">'+esc(e.page||"")+'</span><br><span class="mono">'+esc(JSON.stringify(e.properties||{}))+'</span></div>').join(''):'No events.';
+}
+async function load(){
+ const r=await fetch("/api/admin/analytics");
+ if(!r.ok){$("metrics").innerHTML='<div class="card">Could not load analytics.</div>';return}
+ const j=await r.json();raw=j.events||[];
+ const versions=[...new Set(raw.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
+ $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
+ render();
+}
+$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=load;load();
+</script></body></html>`;
+}
+
+app.get("/admin",requireAdmin,(_req,res)=>res.type("html").send(analyticsAdminHtml()));
+
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.1.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"5.0.0",
+  version:"5.1.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1193,7 +1514,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.0.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.1.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

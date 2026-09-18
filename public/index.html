@@ -606,7 +606,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v5.0</span><span style="opacity:.55">•</span><span>September 17, 2026</span></div>
+<div class="build"><span>v5.1</span><span style="opacity:.55">•</span><span>September 18, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -753,6 +753,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
     <div class="install-step"><span class="install-step-num">3</span><span>Choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</span></div>
   </div>
 </div>
+<div class="small" style="margin:8px 0 14px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fafbf8"><b>Beta analytics:</b> during testing, My AR Shelf records anonymous usage and technical-error events so we can understand what features are used and diagnose failures. It does not collect child names, recovery codes, or backup contents.</div>
 <div class="section-title" style="margin-top:20px">Library protection</div>
 
 <div class="small">Your library stays on this device and is also backed up privately to your My AR Shelf server.</div>
@@ -861,6 +862,72 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
+const APP_VERSION='5.1';
+const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
+const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
+
+function getTelemetryInstallId(){
+  let id=localStorage.getItem(TELEMETRY_INSTALL_KEY);
+  if(!id){
+    id='i_'+uid()+'_'+Math.random().toString(36).slice(2,10);
+    localStorage.setItem(TELEMETRY_INSTALL_KEY,id);
+  }
+  return id;
+}
+function coarsePlatform(){
+  const ua=navigator.userAgent||'';
+  if(/iPhone|iPad|iPod/i.test(ua))return 'ios';
+  if(/Android/i.test(ua))return 'android';
+  if(/Mac/i.test(ua))return 'mac';
+  if(/Windows/i.test(ua))return 'windows';
+  return 'other';
+}
+function currentDisplayMode(){
+  return (window.matchMedia?.('(display-mode: standalone)').matches||window.navigator.standalone===true)?'standalone':'browser';
+}
+function safeTelemetryProps(props={}){
+  const out={};
+  const forbidden=/recovery|child.?name|kid.?name|backup.?data|library.?data/i;
+  for(const [k,v] of Object.entries(props||{})){
+    if(forbidden.test(k))continue;
+    if(v==null||typeof v==='boolean'||typeof v==='number')out[k]=v;
+    else if(typeof v==='string')out[k]=v.slice(0,300);
+    else if(Array.isArray(v))out[k]=v.slice(0,20).map(x=>typeof x==='string'?x.slice(0,120):x);
+  }
+  return out;
+}
+function trackEvent(eventName,properties={}){
+  try{
+    const payload=JSON.stringify({
+      timestamp:new Date().toISOString(),
+      eventName,
+      installId:getTelemetryInstallId(),
+      sessionId:TELEMETRY_SESSION_ID,
+      appVersion:APP_VERSION,
+      page:currentPage,
+      platform:coarsePlatform(),
+      displayMode:currentDisplayMode(),
+      properties:safeTelemetryProps(properties)
+    });
+    if(navigator.sendBeacon){
+      const ok=navigator.sendBeacon('/api/telemetry',new Blob([payload],{type:'application/json'}));
+      if(ok)return;
+    }
+    fetch('/api/telemetry',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:payload,
+      keepalive:true
+    }).catch(()=>{});
+  }catch{}
+}
+let telemetryDebounceTimer=null;
+function trackDebounced(eventName,properties={},delay=500){
+  clearTimeout(telemetryDebounceTimer);
+  telemetryDebounceTimer=setTimeout(()=>trackEvent(eventName,properties),delay);
+}
+
+
 function makeRecoveryCode(){
   const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes=new Uint8Array(16);
@@ -934,6 +1001,8 @@ function dataForServerBackup(){
 async function backupToServer(manual=false){
   if(serverSyncInFlight)return false;
   serverSyncInFlight=true;
+  const telemetryBackupStarted=performance.now();
+  trackEvent('backup_started',{manual});
   renderProtectionStatus('syncing');
   try{
     const code=getRecoveryCode();
@@ -949,9 +1018,11 @@ async function backupToServer(manual=false){
     const ts=j.savedAt||now();
     localStorage.setItem(SERVER_BACKUP_TIME_KEY,ts);
     renderProtectionStatus('ok');
+    trackEvent('backup_success',{manual,durationMs:Math.round(performance.now()-telemetryBackupStarted),bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
     return true;
   }catch(e){
     renderProtectionStatus('error',e.message);
+    trackEvent('backup_failed',{manual,durationMs:Math.round(performance.now()-telemetryBackupStarted),errorType:e?.name||'Error',errorCode:e?.message||'Backup failed'});
     return false;
   }finally{
     serverSyncInFlight=false;
@@ -979,6 +1050,8 @@ async function restoreFromServer(){
   const code=cleanRecoveryCode($('restoreCodeInput').value);
   if(!code)return alert('Enter a recovery code.');
   if(!confirm('Replace the library on this device with the recovered library?'))return;
+  const telemetryRestoreStarted=performance.now();
+  trackEvent('restore_started');
   try{
     const r=await fetch('/api/backup/'+encodeURIComponent(code));
     const j=await r.json().catch(()=>({}));
@@ -990,8 +1063,9 @@ async function restoreFromServer(){
     localStorage.setItem(SERVER_BACKUP_TIME_KEY,j.savedAt||now());
     $('restoreBox').classList.remove('show');
     renderAll();renderProtectionStatus('ok');
+    trackEvent('restore_success',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
     alert('Library restored.');
-  }catch(e){alert(e.message||'Restore failed.')}
+  }catch(e){trackEvent('restore_failed',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),errorType:e?.name||'Error',errorCode:e?.message||'Restore failed'});alert(e.message||'Restore failed.')}
 }
 function cleanRecoveryCode(v){
   const raw=String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -1030,7 +1104,7 @@ $('undoBtn').onclick=()=>{if(undoState)undoState();undoState=null;$('toast').cla
 function bookTitle(b){return b.title||('ISBN '+b.isbn)}
 function enqueue(raw,source='scan'){
   const isbn=clean(raw);
-  if(!validISBN(isbn))return false;
+  if(!validISBN(isbn)){trackEvent('scan_invalid',{source,length:isbn.length});return false;}
   const isFirstEverBook=Object.keys(data.books).length===0;
   const existing=data.books[isbn];
   if(existing){
@@ -1040,6 +1114,7 @@ function enqueue(raw,source='scan'){
     showCapture('Already saved');
     try{renderAll()}catch(e){console.error('[render duplicate]',e)}
     setOutcome('duplicate',bookTitle(existing),existing.author,'No duplicate was added.');
+    trackEvent('duplicate_scan',{isbn,source});
     return true;
   }
   data.books[isbn]={
@@ -1047,6 +1122,7 @@ function enqueue(raw,source='scan'){
     metadataSource:null,arSource:null,lookedUpAt:null,error:null,firstScannedAt:now(),lastScannedAt:now(),scanCount:1,source,kidState:{}
   };
   recentSession.push(isbn);
+  trackEvent('book_captured',{isbn,source,librarySize:Object.keys(data.books).length});
   persist();
   showCapture();
   if(isFirstEverBook) showFirstScanPrompt();
@@ -1089,6 +1165,8 @@ function pumpQueue(){
 }
 async function lookupBook(book,refresh=false){
   activeLookups++;
+  const telemetryLookupStarted=performance.now();
+  trackEvent('lookup_started',{isbn:book.isbn,refresh:Boolean(refresh||book.forceRefresh)});
   book.lookupStatus='pending';
   book.error=null;
   persist();
@@ -1123,6 +1201,7 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
+      trackEvent('lookup_success',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted),matchBasis:j.matchBasis||'isbn',matchedISBN:j.matchedISBN||null,atos:j.atos,points:j.points});
       setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':(j.matchBasis==='quick_isbn_unique'?' · ISBN search match':(j.matchBasis==='equivalent_isbn'?' · ISBN equivalent match':''))))}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
@@ -1134,6 +1213,7 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
+      trackEvent('lookup_no_ar',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted)});
       setOutcome('noar',bookTitle(book),book.author,['No AR quiz found for this ISBN.',diagnosticSummary(book)].filter(Boolean).join(' · '));
     }else{
       if(j.title) book.title=j.title;
@@ -1152,6 +1232,12 @@ async function lookupBook(book,refresh=false){
       book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
     }
     book.lookedUpAt=now();
+    trackEvent(e?.name==='AbortError'?'lookup_timeout':'lookup_error',{
+      isbn:book.isbn,
+      durationMs:Math.round(performance.now()-telemetryLookupStarted),
+      errorType:e?.name||'Error',
+      errorCode:e?.detail||null
+    });
     setOutcome('error',bookTitle(book),book.author,[book.error,diagnosticSummary(book)].filter(Boolean).join(' · '));
   }finally{
     delete book.forceRefresh;
@@ -1193,7 +1279,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'5.0',
+    appVersion:'5.1',
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,
@@ -1214,7 +1300,7 @@ async function copyDiagnostics(isbn){
   }
 }
 
-function retry(isbn){const b=data.books[isbn];if(!b)return;b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
+function retry(isbn){const b=data.books[isbn];if(!b)return;trackEvent('lookup_retry',{isbn,priorStatus:b.lookupStatus});b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
 
 async function startCamera(){
   if(currentPage!=='scanPage'||!$('cameraToggle').checked||scanning)return;
@@ -1236,9 +1322,11 @@ async function startCamera(){
       }
     },()=>{});
     $('cameraToggleText').textContent='Camera on';
+    trackEvent('camera_started');
   }catch(e){
     scanning=false;$('cameraToggle').checked=false;$('cameraToggleText').textContent='Camera off';
     $('readerShell').style.display='none';$('cameraOff').style.display='flex';
+    trackEvent('camera_error',{errorType:e?.name||'Error'});
     setOutcome('error','Camera could not start',null,'Check camera permission and try again.');
   }
 }
@@ -1248,7 +1336,9 @@ async function stopCamera(){
     try{await scanner.stop()}catch{}
     try{await scanner.clear()}catch{}
   }
+  const wasScanning=scanning;
   scanner=null;scanning=false;
+  if(wasScanning)trackEvent('camera_stopped',{capturedThisSession:sessionCapturedCount});
   document.querySelectorAll('video').forEach(v=>{const s=v.srcObject;if(s?.getTracks)s.getTracks().forEach(t=>t.stop());v.srcObject=null});
   $('readerShell').style.display='none';$('cameraOff').style.display='flex';
 }
@@ -1267,7 +1357,7 @@ $('cameraToggle').addEventListener('change',async()=>{
     maybeAutoBackup();
   }
 });
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){trackEvent('app_background');stopCamera()}else{trackEvent('app_foreground')}});
 window.addEventListener('pagehide',stopCamera);
 
 function kidState(b,kidId){return b.kidState?.[kidId]||'available'}
@@ -1275,7 +1365,7 @@ function setKidState(isbn,kidId,state){
   const b=data.books[isbn];if(!b)return;
   b.kidState=b.kidState||{};
   const prev=b.kidState[kidId]||'available';
-  b.kidState[kidId]=state;persist();renderAll();
+  b.kidState[kidId]=state;trackEvent('kid_book_state_changed',{isbn,state,previousState:prev});persist();renderAll();
   const label=state==='read'?'Marked Read':'Marked Not interested';
   showToast(label,()=>{b.kidState[kidId]=prev;persist();renderAll()});
 }
@@ -1420,18 +1510,21 @@ function saveKid(){
   if(!name)return alert('Enter a name.');
   const min=minV===''?null:Number(minV),max=maxV===''?null:Number(maxV);
   if(min!=null&&max!=null&&min>max)return alert('Minimum AR level must be below maximum.');
+  const wasEditing=Boolean(editingKid);
   if(editingKid){
     if(editingKid.min!==min||editingKid.max!==max){editingKid.history=editingKid.history||[];editingKid.history.push({date:now(),min:editingKid.min,max:editingKid.max})}
     Object.assign(editingKid,{name,min,max,updatedAt:now()});
   }else{
     const k={id:uid(),name,min,max,history:[],createdAt:now(),updatedAt:now()};data.kids.push(k);selectedKidId=k.id;
   }
+  trackEvent(wasEditing?'child_updated':'child_created',{hasMin:min!=null,hasMax:max!=null,kidCount:data.kids.length});
   persist();$('kidModal').classList.remove('open');editingKid=null;renderAll();
 }
 function deleteKid(){
   if(!editingKid||!confirm('Delete this child profile? Household books will remain.'))return;
   const id=editingKid.id;data.kids=data.kids.filter(k=>k.id!==id);Object.values(data.books).forEach(b=>{if(b.kidState)delete b.kidState[id]});
   if(selectedKidId===id)selectedKidId=data.kids[0]?.id||null;
+  trackEvent('child_deleted',{kidCount:data.kids.length});
   persist();$('kidModal').classList.remove('open');editingKid=null;renderAll();
 }
 
@@ -1439,6 +1532,7 @@ async function showPage(id){
   const leavingScan=(currentPage==='scanPage' && id!=='scanPage');
   if(leavingScan) maybeAutoBackup();
   currentPage=id;
+  trackEvent('page_view',{page:id});
   document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));
   if(id!=='scanPage'){await stopCamera();$('cameraToggle').checked=false}
@@ -1506,6 +1600,7 @@ function downloadCsvBackup(reason='manual'){
   localStorage.setItem(LAST_BACKUP_KEY,ts);
   sessionBackupDone=true;
   renderBackupStatus();
+  trackEvent('csv_exported',{reason,bookCount:Object.keys(data.books).length});
   return filename;
 }
 function autoBackupEnabled(){
@@ -1528,20 +1623,23 @@ function renderBackupStatus(){
 
 function exportBackup(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='my-ar-shelf-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);
+  a.href=URL.createObjectURL(blob);a.download='my-ar-shelf-backup-v2.2.json';a.click();URL.revokeObjectURL(a.href);trackEvent('json_exported',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
 }
 
 $('addIsbnBtn').onclick=()=>{const ok=enqueue($('isbnInput').value,'manual');if(ok)$('isbnInput').value='';else alert('Enter a valid ISBN-10 or ISBN-13.')};
 $('isbnInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('addIsbnBtn').click()});
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 ['librarySearch','libraryStatus','librarySort'].forEach(id=>$(id).addEventListener('input',renderLibrary));
+$('libraryStatus').addEventListener('change',()=>trackEvent('library_status_filter',{value:$('libraryStatus').value}));
+$('librarySort').addEventListener('change',()=>trackEvent('library_sort_changed',{value:$('librarySort').value}));
+$('librarySearch').addEventListener('input',()=>trackDebounced('library_search_used',{queryLength:$('librarySearch').value.trim().length},650));
 $('addKidQuickBtn').onclick=()=>openKid();
 $('editSelectedKid').onclick=()=>{if(selectedKidId)openKid(selectedKidId)};
-$('kidFilterTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{kidFilter=b.dataset.kfilter;renderKids()});
+$('kidFilterTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{kidFilter=b.dataset.kfilter;trackEvent('kid_filter_changed',{filter:kidFilter});renderKids()});
 $('kidSaveBtn').onclick=saveKid;
 $('kidCancelBtn').onclick=()=>{$('kidModal').classList.remove('open');editingKid=null};
 $('kidModal').onclick=e=>{if(e.target===$('kidModal')){$('kidModal').classList.remove('open');editingKid=null}};
-$('checkBtn').onclick=checkServer;
+$('checkBtn').onclick=()=>{trackEvent('server_check');checkServer()};
 
 function isStandaloneApp(){
   return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
@@ -1560,6 +1658,7 @@ function renderInstallSettings(){
   }
 }
 $('installHelpBtn').onclick=()=>{
+  trackEvent('install_help_opened',{standalone:isStandaloneApp()});
   $('installInstructions').classList.toggle('show');
   $('installHelpBtn').textContent=$('installInstructions').classList.contains('show')?'Hide':'How';
 };
@@ -1573,6 +1672,8 @@ async function copyRecoveryCode(){
   const code=getRecoveryCode();
   try{
     await navigator.clipboard.writeText(code);
+    trackEvent('recovery_code_copy');
+    trackEvent('recovery_code_copy');
     showToast('Recovery code copied');
   }catch{
     const ta=document.createElement('textarea');
@@ -1603,6 +1704,7 @@ Keep this code private. It can restore your My AR Shelf household library and ki
   document.body.appendChild(a);
   a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+  trackEvent('recovery_code_download');
   showToast('Recovery code file downloaded');
 }
 
@@ -1619,8 +1721,10 @@ $('autoBackupToggle').addEventListener('change',()=>{
 $('exportBtn').onclick=exportBackup;
 $('eraseBtn').onclick=()=>{
   if(!confirm('Erase the entire local household library and all child profiles from this device? Your online recovery backup will remain available.')) return;
+  trackEvent('local_data_erased',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
   clearTimeout(serverSyncTimer);
   localStorage.removeItem(KEY);
+  localStorage.removeItem(TELEMETRY_INSTALL_KEY);
   for(const key of OLD_KEYS) localStorage.removeItem(key);
   data=freshData();
   recentSession.length=0;
@@ -1633,6 +1737,8 @@ $('eraseBtn').onclick=()=>{
 };
 
 renderAll();pumpQueue();
+trackEvent('app_open',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
+trackEvent('page_view',{page:currentPage});
 setTimeout(()=>repairMissingBookNames(),800);
 </script>
 
