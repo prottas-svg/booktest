@@ -606,7 +606,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v5.4</span><span style="opacity:.55">•</span><span>September 19, 2026</span></div>
+<div class="build"><span>v5.5</span><span style="opacity:.55">•</span><span>September 19, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -862,7 +862,7 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-const APP_VERSION='5.4';
+const APP_VERSION='5.5';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
 
@@ -1162,7 +1162,7 @@ async function repairMissingBookNames(){
 }
 
 
-const UNRESOLVED_RECHECK_VERSION='5.4';
+const UNRESOLVED_RECHECK_VERSION='5.5';
 const UNRESOLVED_RECHECK_KEY='scan_ar_unresolved_recheck_version_v1';
 
 function queueUnresolvedBooksForReleaseRecheck(){
@@ -1263,6 +1263,7 @@ async function lookupBook(book,refresh=false){
         recheckRelease,
         matchBasis:j.matchBasis||'isbn',
         matchedISBN:j.matchedISBN||null,
+        quizNumber:j.quizNumber||null,
         atos:j.atos,
         points:j.points
       });

@@ -19,6 +19,9 @@ const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 const TELEMETRY_DIR = process.env.TELEMETRY_DIR || "/data/telemetry";
 const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
+const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
+const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
+const SERVER_VERSION = "5.5.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -117,6 +120,218 @@ async function readTelemetryEvents(){
   }
   out.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)));
   return out.slice(-100000);
+}
+
+
+async function readRegressionCases(){
+  await ensureTelemetryDir();
+  try{
+    const raw=await fs.readFile(REGRESSION_FILE,"utf8");
+    const parsed=JSON.parse(raw);
+    return parsed && typeof parsed==="object" ? parsed : {};
+  }catch(e){
+    if(e?.code!=="ENOENT") console.error("[regression read]",e);
+    return {};
+  }
+}
+
+async function writeRegressionCases(cases){
+  await ensureTelemetryDir();
+  const temp=REGRESSION_FILE+".tmp";
+  await fs.writeFile(temp,JSON.stringify(cases,null,2),"utf8");
+  await fs.rename(temp,REGRESSION_FILE);
+}
+
+let regressionWriteChain=Promise.resolve();
+function rememberRegressionCase(event){
+  const isbn=normalizeISBN(event?.properties?.isbn||"");
+  if(!isValidISBN(isbn)) return;
+  regressionWriteChain=regressionWriteChain.then(async()=>{
+    const cases=await readRegressionCases();
+    const prior=cases[isbn]||{};
+    cases[isbn]={
+      isbn,
+      firstSeenAt:prior.firstSeenAt||event.timestamp||new Date().toISOString(),
+      lastSeenAt:event.timestamp||new Date().toISOString(),
+      expectedQuizNumber:event?.properties?.quizNumber||prior.expectedQuizNumber||null,
+      source:prior.source||"observed_lookup_success"
+    };
+    await writeRegressionCases(cases);
+  }).catch(e=>console.error("[regression write]",e?.message||e));
+}
+
+async function backfillRegressionCases(){
+  const events=await readTelemetryEvents();
+  for(const e of events){
+    if(e.eventName==="lookup_success" && e.properties?.isbn) rememberRegressionCase(e);
+  }
+  await regressionWriteChain;
+}
+
+function serverTelemetryEvent(eventName,properties={},sessionId="server"){
+  const timestamp=new Date().toISOString();
+  return {
+    timestamp,
+    receivedAt:timestamp,
+    eventName,
+    installId:"server_verification",
+    sessionId,
+    appVersion:SERVER_VERSION.replace(/\\.0$/, ""),
+    page:"server",
+    platform:"server",
+    displayMode:"server",
+    properties:sanitizeTelemetryProperties(properties)
+  };
+}
+
+async function readBackupVerificationCandidates(){
+  await ensureBackupDir();
+  const candidates=new Map();
+  let files=[];
+  try{files=await fs.readdir(BACKUP_DIR,{withFileTypes:true})}catch(e){
+    if(e?.code!=="ENOENT") console.error("[verification backups]",e);
+    return candidates;
+  }
+  for(const entry of files){
+    if(!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try{
+      const raw=await fs.readFile(path.join(BACKUP_DIR,entry.name),"utf8");
+      const record=JSON.parse(raw);
+      const books=record?.data?.books;
+      if(!books || typeof books!=="object") continue;
+      for(const book of Object.values(books)){
+        const isbn=normalizeISBN(book?.isbn||"");
+        if(!isValidISBN(isbn)) continue;
+        if(book.lookupStatus!=="no_ar" && book.lookupStatus!=="error") continue;
+        if(!candidates.has(isbn)) candidates.set(isbn,{isbn,statuses:new Set(),backupIds:new Set()});
+        const c=candidates.get(isbn);
+        c.statuses.add(book.lookupStatus);
+        c.backupIds.add(entry.name);
+      }
+    }catch(e){
+      console.error("[verification backup file]",entry.name,e?.message||e);
+    }
+  }
+  return candidates;
+}
+
+let serverVerificationRunning=false;
+let serverVerificationLatest=null;
+
+async function runServerVerification({reason="manual",force=false}={}){
+  if(serverVerificationRunning) return {started:false,running:true,latest:serverVerificationLatest};
+  await ensureTelemetryDir();
+  if(!force){
+    try{
+      const prev=JSON.parse(await fs.readFile(SERVER_VERIFY_STATE_FILE,"utf8"));
+      if(prev?.serverVersion===SERVER_VERSION && prev?.finishedAt){
+        serverVerificationLatest=prev;
+        return {started:false,alreadyRan:true,latest:prev};
+      }
+    }catch(e){if(e?.code!=="ENOENT") console.error("[verification state]",e)}
+  }
+
+  serverVerificationRunning=true;
+  const runId="server_verify_"+Date.now().toString(36);
+  const startedAt=new Date().toISOString();
+  const summary={serverVersion:SERVER_VERSION,runId,reason,startedAt,finishedAt:null,historicalTotal:0,regressionTotal:0,historicalFixedToAr:0,historicalConfirmedNoAr:0,historicalResolvedToNoAr:0,historicalStillError:0,regressionPassed:0,regressionFailed:0};
+  serverVerificationLatest=summary;
+
+  try{
+    await backfillRegressionCases();
+    const historical=await readBackupVerificationCandidates();
+    const regressions=await readRegressionCases();
+    summary.historicalTotal=historical.size;
+    summary.regressionTotal=Object.keys(regressions).length;
+    await appendTelemetry(serverTelemetryEvent("server_verification_started",{
+      reason,
+      historicalTotal:summary.historicalTotal,
+      regressionTotal:summary.regressionTotal,
+      serverVersion:SERVER_VERSION
+    },runId));
+
+    const combined=new Map();
+    for(const [isbn,c] of historical) combined.set(isbn,{isbn,historical:c,regression:regressions[isbn]||null});
+    for(const [isbn,r] of Object.entries(regressions)){
+      if(!combined.has(isbn)) combined.set(isbn,{isbn,historical:null,regression:r});
+      else combined.get(isbn).regression=r;
+    }
+
+    const items=[...combined.values()];
+    let next=0;
+    const worker=async()=>{
+      while(true){
+        const n=next++;
+        if(n>=items.length) return;
+        const item=items[n];
+        const t0=Date.now();
+        let resultStatus="error", outcome="still_error", result=null, errorCode=null;
+        try{
+          result=await withLookupDeadline(performLookup(item.isbn,{refresh:true}));
+          resultStatus="found";
+          outcome="fixed_to_ar";
+        }catch(e){
+          errorCode=e?.code||e?.name||"ERROR";
+          if(e?.code==="NOT_FOUND"){
+            resultStatus="no_ar";
+            const priorStatuses=item.historical?[...item.historical.statuses]:[];
+            outcome=priorStatuses.includes("error") && !priorStatuses.includes("no_ar") ? "resolved_to_no_ar" : "confirmed_no_ar";
+          }
+        }
+
+        if(item.historical){
+          if(resultStatus==="found") summary.historicalFixedToAr++;
+          else if(outcome==="confirmed_no_ar") summary.historicalConfirmedNoAr++;
+          else if(outcome==="resolved_to_no_ar") summary.historicalResolvedToNoAr++;
+          else summary.historicalStillError++;
+          await appendTelemetry(serverTelemetryEvent("server_historical_recheck_completed",{
+            isbn:item.isbn,
+            priorStatuses:[...item.historical.statuses],
+            affectedBackups:item.historical.backupIds.size,
+            resultStatus,
+            outcome,
+            quizNumber:result?.quizNumber||null,
+            atos:result?.atos??null,
+            points:result?.points??null,
+            matchBasis:result?.matchBasis||null,
+            errorCode,
+            durationMs:Date.now()-t0,
+            serverVersion:SERVER_VERSION
+          },runId));
+        }
+
+        if(item.regression){
+          const passed=resultStatus==="found";
+          if(passed) summary.regressionPassed++; else summary.regressionFailed++;
+          await appendTelemetry(serverTelemetryEvent("server_regression_recheck_completed",{
+            isbn:item.isbn,
+            passed,
+            resultStatus,
+            expectedQuizNumber:item.regression.expectedQuizNumber||null,
+            actualQuizNumber:result?.quizNumber||null,
+            errorCode,
+            durationMs:Date.now()-t0,
+            serverVersion:SERVER_VERSION
+          },runId));
+        }
+      }
+    };
+
+    await Promise.all([worker(),worker()]);
+    summary.finishedAt=new Date().toISOString();
+    await appendTelemetry(serverTelemetryEvent("server_verification_finished",summary,runId));
+    await fs.writeFile(SERVER_VERIFY_STATE_FILE,JSON.stringify(summary,null,2),"utf8");
+    serverVerificationLatest=summary;
+    return {started:true,latest:summary};
+  }catch(e){
+    summary.finishedAt=new Date().toISOString();
+    summary.error=String(e?.message||e);
+    serverVerificationLatest=summary;
+    await appendTelemetry(serverTelemetryEvent("server_verification_failed",{serverVersion:SERVER_VERSION,error:summary.error},runId));
+    return {started:true,error:summary.error,latest:summary};
+  }finally{
+    serverVerificationRunning=false;
+  }
 }
 
 function adminAuthorized(req){
@@ -1277,6 +1492,7 @@ app.post("/api/telemetry",async(req,res)=>{
     // Send the response immediately; persistence is best-effort.
     res.status(204).end();
     void appendTelemetry(event);
+    if(event.eventName==="lookup_success" && event.properties?.isbn) rememberRegressionCase(event);
   }catch{
     // Telemetry failure should not surface to the product.
     if(!res.headersSent) res.status(204).end();
@@ -1285,7 +1501,17 @@ app.post("/api/telemetry",async(req,res)=>{
 
 app.get("/api/admin/analytics",requireAdmin,async(_req,res)=>{
   const events=await readTelemetryEvents();
-  res.json({ok:true,events});
+  res.json({ok:true,events,serverVerification:{running:serverVerificationRunning,latest:serverVerificationLatest}});
+});
+
+app.get("/api/admin/server-recheck-status",requireAdmin,async(_req,res)=>{
+  res.json({ok:true,running:serverVerificationRunning,latest:serverVerificationLatest});
+});
+
+app.post("/api/admin/server-recheck",requireAdmin,async(_req,res)=>{
+  if(serverVerificationRunning) return res.status(202).json({ok:true,started:false,running:true,latest:serverVerificationLatest});
+  res.status(202).json({ok:true,started:true});
+  void runServerVerification({reason:"admin_manual",force:true});
 });
 
 function analyticsAdminHtml(){
@@ -1321,6 +1547,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <select id="window"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="9999">All time</option></select>
 <select id="version"><option value="">All versions</option></select>
 <button id="refresh">Refresh</button>
+<button id="runServerRecheck">Run server verification</button>
+<span id="serverRecheckStatus" class="muted"></span>
 </div>
 <div id="metrics" class="grid"></div>
 <div class="section"><h2>Activation & uptake</h2><div class="card" id="funnel"></div></div>
@@ -1422,6 +1650,19 @@ function render(){
  '<div style="height:12px"></div><b>Successful match paths</b>'+bars(countBy(match,e=>e.properties?.matchBasis||"isbn"))+
  '<div style="height:12px"></div><b>Error types</b>'+bars(countBy(errs,e=>e.properties?.errorCode||e.properties?.errorType||"error"));
 
+ const serverRuns=raw.filter(e=>e.eventName==="server_verification_finished").slice().sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
+ const latestServerRun=serverRuns[0]||null;
+ const latestRunId=latestServerRun?.sessionId||null;
+ const serverHistorical=latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_historical_recheck_completed"):[];
+ const serverRegression=latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_regression_recheck_completed"):[];
+ const serverBox=latestServerRun
+   ? '<b>Immediate server verification · '+esc(latestServerRun.properties?.serverVersion||latestServerRun.appVersion||"")+'</b>'+ 
+     '<table><tr><th>Historical unresolved</th><th>Fixed → AR</th><th>Verified no AR</th><th>Still failing</th><th>Regression tests</th><th>Passing</th></tr>'+ 
+     '<tr><td>'+Number(latestServerRun.properties?.historicalTotal||0)+'</td><td class="good">'+Number(latestServerRun.properties?.historicalFixedToAr||0)+'</td><td>'+Number((latestServerRun.properties?.historicalConfirmedNoAr||0)+(latestServerRun.properties?.historicalResolvedToNoAr||0))+'</td><td class="'+(latestServerRun.properties?.historicalStillError?'bad':'')+'">'+Number(latestServerRun.properties?.historicalStillError||0)+'</td><td>'+Number(latestServerRun.properties?.regressionTotal||0)+'</td><td class="'+(latestServerRun.properties?.regressionFailed?'bad':'good')+'">'+Number(latestServerRun.properties?.regressionPassed||0)+' / '+Number(latestServerRun.properties?.regressionTotal||0)+'</td></tr></table>'+ 
+     (serverHistorical.length?'<div style="height:12px"></div><b>Server historical results</b><table><tr><th>ISBN</th><th>Prior</th><th>Current</th><th>Outcome</th><th>Affected backups</th></tr>'+serverHistorical.slice().sort((a,b)=>String(a.properties?.isbn).localeCompare(String(b.properties?.isbn))).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc((e.properties?.priorStatuses||[]).join(", "))+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.outcome||"")+'</td><td>'+Number(e.properties?.affectedBackups||0)+'</td></tr>').join('')+'</table>':'')+
+     (serverRegression.some(e=>!e.properties?.passed)?'<div style="height:12px"></div><b class="bad">Regression failures</b><table><tr><th>ISBN</th><th>Result</th><th>Error</th></tr>'+serverRegression.filter(e=>!e.properties?.passed).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.errorCode||"")+'</td></tr>').join('')+'</table>':'')
+   : '<b>Immediate server verification</b><div class="muted" style="margin-top:6px">No server verification run has completed yet. It runs automatically once per server release; you can also run it manually above.</div>';
+
  const releaseQueued=ev.filter(e=>e.eventName==="unresolved_books_recheck_queued");
  const releaseCompleted=ev.filter(e=>e.eventName==="historical_book_recheck_completed");
  const releaseMap=new Map();
@@ -1450,7 +1691,7 @@ function render(){
    ? '<div style="height:14px"></div><b>Recent historical rechecks</b><table><tr><th>ISBN</th><th>Old</th><th>New</th><th>Version</th><th>Outcome</th></tr>'+ 
      recentFixes.map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.oldStatus||"—")+'</td><td>'+esc(e.properties?.newStatus||"—")+'</td><td>'+esc((e.properties?.fromVersion||"earlier")+' → '+(e.properties?.toVersion||e.appVersion||""))+'</td><td>'+esc(e.properties?.outcome||"")+'</td></tr>').join('')+'</table>'
    : '';
- $("fixVerification").innerHTML=fixSummary+fixDetails;
+ $("fixVerification").innerHTML=serverBox+'<div style="height:18px;border-top:1px solid #eceee9;margin-top:18px;padding-top:16px"><b>Client repair after user returns</b></div>'+fixSummary+fixDetails;
 
  const scansByISBN=new Map();
  for(const e of ev.filter(e=>e.properties?.isbn)){
@@ -1487,18 +1728,30 @@ async function load(){
  const j=await r.json();raw=j.events||[];
  const versions=[...new Set(raw.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
  $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
+ const sv=j.serverVerification||{};
+ $("serverRecheckStatus").textContent=sv.running?'Server verification running…':(sv.latest?.finishedAt?'Last completed '+new Date(sv.latest.finishedAt).toLocaleString():'');
  render();
 }
-$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=load;load();
+async function runServerRecheck(){
+ const btn=$("runServerRecheck");btn.disabled=true;$("serverRecheckStatus").textContent='Starting server verification…';
+ try{
+   const r=await fetch("/api/admin/server-recheck",{method:"POST"});
+   if(!r.ok)throw new Error('Could not start');
+   $("serverRecheckStatus").textContent='Server verification running…';
+   setTimeout(load,3000);
+ }catch{$("serverRecheckStatus").textContent='Could not start server verification.'}
+ finally{setTimeout(()=>btn.disabled=false,2500)}
+}
+$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=load;$("runServerRecheck").onclick=runServerRecheck;load();
 </script></body></html>`;
 }
 
 app.get("/admin",requireAdmin,(_req,res)=>res.type("html").send(analyticsAdminHtml()));
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.4.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:SERVER_VERSION,time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"5.4.0",
+  version:SERVER_VERSION,
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1575,7 +1828,11 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.4.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>{
+  console.log(`My AR Shelf v${SERVER_VERSION} listening on ${port}`);
+  // Verify historical unresolved books and known-good regressions once per release.
+  setTimeout(()=>{void runServerVerification({reason:"startup_release",force:false})},2500);
+});
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
