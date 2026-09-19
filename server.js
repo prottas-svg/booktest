@@ -11,7 +11,9 @@ app.use(express.static("public", { maxAge: 0 }));
 
 const BOOKFINDER_URL = "https://www.arbookfind.com/advanced.aspx?client=PBQN";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const NO_AR_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const cache = new Map();
+const noArCache = new Map();
 
 const BACKUP_DIR = process.env.BACKUP_DIR || "/data/backups";
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
@@ -19,6 +21,9 @@ const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 const TELEMETRY_DIR = process.env.TELEMETRY_DIR || "/data/telemetry";
 const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
+const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
+const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
+const SERVER_VERSION = "5.8.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -117,6 +122,269 @@ async function readTelemetryEvents(){
   }
   out.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)));
   return out.slice(-100000);
+}
+
+
+async function readRegressionCases(){
+  await ensureTelemetryDir();
+  try{
+    const raw=await fs.readFile(REGRESSION_FILE,"utf8");
+    const parsed=JSON.parse(raw);
+    return parsed && typeof parsed==="object" ? parsed : {};
+  }catch(e){
+    if(e?.code!=="ENOENT") console.error("[regression read]",e);
+    return {};
+  }
+}
+
+async function writeRegressionCases(cases){
+  await ensureTelemetryDir();
+  const temp=REGRESSION_FILE+".tmp";
+  await fs.writeFile(temp,JSON.stringify(cases,null,2),"utf8");
+  await fs.rename(temp,REGRESSION_FILE);
+}
+
+let regressionWriteChain=Promise.resolve();
+function rememberRegressionCase(event){
+  const isbn=normalizeISBN(event?.properties?.isbn||"");
+  if(!isValidISBN(isbn)) return;
+  regressionWriteChain=regressionWriteChain.then(async()=>{
+    const cases=await readRegressionCases();
+    const prior=cases[isbn]||{};
+    cases[isbn]={
+      isbn,
+      firstSeenAt:prior.firstSeenAt||event.timestamp||new Date().toISOString(),
+      lastSeenAt:event.timestamp||new Date().toISOString(),
+      expectedQuizNumber:event?.properties?.quizNumber||prior.expectedQuizNumber||null,
+      source:prior.source||"observed_lookup_success"
+    };
+    await writeRegressionCases(cases);
+  }).catch(e=>console.error("[regression write]",e?.message||e));
+}
+
+async function backfillRegressionCases(){
+  const events=await readTelemetryEvents();
+  for(const e of events){
+    if(e.eventName==="lookup_success" && e.properties?.isbn) rememberRegressionCase(e);
+  }
+  await regressionWriteChain;
+}
+
+function serverTelemetryEvent(eventName,properties={},sessionId="server"){
+  const timestamp=new Date().toISOString();
+  return {
+    timestamp,
+    receivedAt:timestamp,
+    eventName,
+    installId:"server_verification",
+    sessionId,
+    appVersion:SERVER_VERSION.replace(/\\.0$/, ""),
+    page:"server",
+    platform:"server",
+    displayMode:"server",
+    properties:sanitizeTelemetryProperties(properties)
+  };
+}
+
+async function readBackupVerificationCandidates(){
+  await ensureBackupDir();
+  const candidates=new Map();
+  let files=[];
+  try{files=await fs.readdir(BACKUP_DIR,{withFileTypes:true})}catch(e){
+    if(e?.code!=="ENOENT") console.error("[verification backups]",e);
+    return candidates;
+  }
+  for(const entry of files){
+    if(!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try{
+      const raw=await fs.readFile(path.join(BACKUP_DIR,entry.name),"utf8");
+      const record=JSON.parse(raw);
+      const books=record?.data?.books;
+      if(!books || typeof books!=="object") continue;
+      for(const book of Object.values(books)){
+        const isbn=normalizeISBN(book?.isbn||"");
+        if(!isValidISBN(isbn)) continue;
+        if(book.lookupStatus!=="no_ar" && book.lookupStatus!=="error") continue;
+        if(!candidates.has(isbn)) candidates.set(isbn,{isbn,statuses:new Set(),backupIds:new Set()});
+        const c=candidates.get(isbn);
+        c.statuses.add(book.lookupStatus);
+        c.backupIds.add(entry.name);
+      }
+    }catch(e){
+      console.error("[verification backup file]",entry.name,e?.message||e);
+    }
+  }
+  return candidates;
+}
+
+let serverVerificationRunning=false;
+let serverVerificationLatest=null;
+let serverVerificationProgress=null;
+
+async function runServerVerification({reason="manual",force=false}={}){
+  if(serverVerificationRunning) return {started:false,running:true,latest:serverVerificationLatest};
+  await ensureTelemetryDir();
+  if(!force){
+    try{
+      const prev=JSON.parse(await fs.readFile(SERVER_VERIFY_STATE_FILE,"utf8"));
+      if(prev?.serverVersion===SERVER_VERSION && prev?.finishedAt){
+        serverVerificationLatest=prev;
+        return {started:false,alreadyRan:true,latest:prev};
+      }
+    }catch(e){if(e?.code!=="ENOENT") console.error("[verification state]",e)}
+  }
+
+  serverVerificationRunning=true;
+  const runId="server_verify_"+Date.now().toString(36);
+  const startedAt=new Date().toISOString();
+  const summary={serverVersion:SERVER_VERSION,runId,reason,startedAt,finishedAt:null,historicalTotal:0,regressionTotal:0,historicalFixedToAr:0,historicalConfirmedNoAr:0,historicalResolvedToNoAr:0,historicalStillError:0,regressionPassed:0,regressionFailed:0};
+  serverVerificationLatest=summary;
+
+  try{
+    await backfillRegressionCases();
+    const historical=await readBackupVerificationCandidates();
+    const regressions=await readRegressionCases();
+    summary.historicalTotal=historical.size;
+    summary.regressionTotal=Object.keys(regressions).length;
+    await appendTelemetry(serverTelemetryEvent("server_verification_started",{
+      reason,
+      historicalTotal:summary.historicalTotal,
+      regressionTotal:summary.regressionTotal,
+      serverVersion:SERVER_VERSION
+    },runId));
+
+    const combined=new Map();
+    for(const [isbn,c] of historical) combined.set(isbn,{isbn,historical:c,regression:regressions[isbn]||null});
+    for(const [isbn,r] of Object.entries(regressions)){
+      if(!combined.has(isbn)) combined.set(isbn,{isbn,historical:null,regression:r});
+      else combined.get(isbn).regression=r;
+    }
+
+    const items=[...combined.values()];
+    const progressItems=items.map(item=>({
+      isbn:item.isbn,
+      historical:Boolean(item.historical),
+      regression:Boolean(item.regression),
+      priorStatuses:item.historical?[...item.historical.statuses]:[],
+      status:"queued",
+      startedAt:null,
+      finishedAt:null,
+      resultStatus:null,
+      outcome:null,
+      errorCode:null,
+      durationMs:null
+    }));
+    serverVerificationProgress={
+      runId,serverVersion:SERVER_VERSION,reason,startedAt,finishedAt:null,
+      total:progressItems.length,
+      historicalTotal:summary.historicalTotal,
+      regressionTotal:summary.regressionTotal,
+      queued:progressItems.length,checking:0,completed:0,remaining:progressItems.length,
+      items:progressItems
+    };
+    let next=0;
+    const worker=async()=>{
+      while(true){
+        const n=next++;
+        if(n>=items.length) return;
+        const item=items[n];
+        const progressItem=serverVerificationProgress?.items?.[n];
+        if(progressItem){
+          progressItem.status="checking";
+          progressItem.startedAt=new Date().toISOString();
+          serverVerificationProgress.queued=Math.max(0,serverVerificationProgress.queued-1);
+          serverVerificationProgress.checking++;
+        }
+        const t0=Date.now();
+        let resultStatus="error", outcome="still_error", result=null, errorCode=null;
+        try{
+          result=await withLookupDeadline(performLookup(item.isbn,{refresh:true}));
+          resultStatus="found";
+          outcome="fixed_to_ar";
+        }catch(e){
+          errorCode=e?.code||e?.name||"ERROR";
+          if(e?.code==="NOT_FOUND"){
+            resultStatus="no_ar";
+            const priorStatuses=item.historical?[...item.historical.statuses]:[];
+            outcome=priorStatuses.includes("error") && !priorStatuses.includes("no_ar") ? "resolved_to_no_ar" : "confirmed_no_ar";
+          }
+        }
+
+        if(item.historical){
+          if(resultStatus==="found") summary.historicalFixedToAr++;
+          else if(outcome==="confirmed_no_ar") summary.historicalConfirmedNoAr++;
+          else if(outcome==="resolved_to_no_ar") summary.historicalResolvedToNoAr++;
+          else summary.historicalStillError++;
+          await appendTelemetry(serverTelemetryEvent("server_historical_recheck_completed",{
+            isbn:item.isbn,
+            priorStatuses:[...item.historical.statuses],
+            affectedBackups:item.historical.backupIds.size,
+            resultStatus,
+            outcome,
+            quizNumber:result?.quizNumber||null,
+            atos:result?.atos??null,
+            points:result?.points??null,
+            matchBasis:result?.matchBasis||null,
+            errorCode,
+            durationMs:Date.now()-t0,
+            serverVersion:SERVER_VERSION
+          },runId));
+        }
+
+        if(item.regression){
+          const passed=resultStatus==="found";
+          if(passed) summary.regressionPassed++; else summary.regressionFailed++;
+          await appendTelemetry(serverTelemetryEvent("server_regression_recheck_completed",{
+            isbn:item.isbn,
+            passed,
+            resultStatus,
+            expectedQuizNumber:item.regression.expectedQuizNumber||null,
+            actualQuizNumber:result?.quizNumber||null,
+            errorCode,
+            durationMs:Date.now()-t0,
+            serverVersion:SERVER_VERSION
+          },runId));
+        }
+
+        if(progressItem){
+          progressItem.status="completed";
+          progressItem.finishedAt=new Date().toISOString();
+          progressItem.resultStatus=resultStatus;
+          progressItem.outcome=item.historical?outcome:(resultStatus==="found"?"regression_pass":"regression_fail");
+          progressItem.errorCode=errorCode;
+          progressItem.durationMs=Date.now()-t0;
+          serverVerificationProgress.checking=Math.max(0,serverVerificationProgress.checking-1);
+          serverVerificationProgress.completed++;
+          serverVerificationProgress.remaining=Math.max(0,serverVerificationProgress.total-serverVerificationProgress.completed);
+        }
+      }
+    };
+
+    await Promise.all([worker(),worker()]);
+    summary.finishedAt=new Date().toISOString();
+    if(serverVerificationProgress){
+      serverVerificationProgress.finishedAt=summary.finishedAt;
+      serverVerificationProgress.queued=0;
+      serverVerificationProgress.checking=0;
+      serverVerificationProgress.remaining=0;
+    }
+    await appendTelemetry(serverTelemetryEvent("server_verification_finished",summary,runId));
+    await fs.writeFile(SERVER_VERIFY_STATE_FILE,JSON.stringify(summary,null,2),"utf8");
+    serverVerificationLatest=summary;
+    return {started:true,latest:summary};
+  }catch(e){
+    summary.finishedAt=new Date().toISOString();
+    summary.error=String(e?.message||e);
+    if(serverVerificationProgress){
+      serverVerificationProgress.finishedAt=summary.finishedAt;
+      serverVerificationProgress.error=summary.error;
+    }
+    serverVerificationLatest=summary;
+    await appendTelemetry(serverTelemetryEvent("server_verification_failed",{serverVersion:SERVER_VERSION,error:summary.error},runId));
+    return {started:true,error:summary.error,latest:summary};
+  }finally{
+    serverVerificationRunning=false;
+  }
 }
 
 function adminAuthorized(req){
@@ -430,7 +698,7 @@ async function submitSearch(page,input) {
             page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
             btn.click()
           ]);
-          await page.waitForTimeout(650);
+          await page.waitForTimeout(150);
           return meta;
         }
       }
@@ -442,7 +710,7 @@ async function submitSearch(page,input) {
     page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
     input.press("Enter")
   ]);
-  await page.waitForTimeout(650);
+  await page.waitForTimeout(150);
   return {method:"enter-fallback"};
 }
 function isbn13To10(isbn13){
@@ -517,53 +785,66 @@ async function fetchJson(url,timeoutMs=8000){
 
 async function lookupSiblingISBNs(isbn){
   const normalized=normalizeISBN(isbn);
-  const out=[];
+  const candidates=new Map();
+  let order=0;
 
-  function add(candidate){
+  function editionYear(value){
+    const m=String(value||"").match(/\b(18|19|20)\d{2}\b/);
+    return m?Number(m[0]):null;
+  }
+
+  function add(candidate,{year=null,source="unknown"}={}){
     const n=normalizeISBN(candidate);
-    if((n.length===10||n.length===13) && n!==normalized && !out.includes(n)){
-      out.push(n);
+    if((n.length!==10&&n.length!==13) || n===normalized) return;
+    const prior=candidates.get(n);
+    const rankYear=Number.isFinite(year)?year:9999;
+    if(!prior){
+      candidates.set(n,{isbn:n,year:rankYear,source,order:order++});
+    }else if(rankYear<prior.year){
+      prior.year=rankYear;
+      prior.source=source;
     }
   }
 
-  // A) Best case: resolve the edition to its Open Library work, then enumerate editions.
+  // A) Resolve the scanned edition to its Open Library work and enumerate editions.
+  // Older editions are deliberately ranked first: AR quizzes are often attached to
+  // the original/older ISBN while a parent scans a later reprint of the same work.
   try{
     const edition=await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(normalized)}.json`);
     const workKey=edition?.works?.[0]?.key;
     if(workKey){
       const editions=await fetchJson(`https://openlibrary.org${workKey}/editions.json?limit=100`);
       for(const e of editions?.entries||[]){
-        for(const candidate of [...(e.isbn_13||[]),...(e.isbn_10||[])]) add(candidate);
+        const year=editionYear(e?.publish_date);
+        for(const candidate of [...(e.isbn_13||[]),...(e.isbn_10||[])]) add(candidate,{year,source:"work_editions"});
       }
     }
   }catch{}
 
   // B) Fallback: Open Library's search index may know the ISBN family even when
-  // /isbn/{isbn}.json has no edition record. Collect ISBNs from exact ISBN hits.
+  // /isbn/{isbn}.json has no edition record.
   try{
     const search=await fetchJson(
-      `https://openlibrary.org/search.json?isbn=${encodeURIComponent(normalized)}&limit=10&fields=isbn,title,author_name`
+      `https://openlibrary.org/search.json?isbn=${encodeURIComponent(normalized)}&limit=10&fields=isbn,title,author_name,first_publish_year`
     );
     for(const doc of search?.docs||[]){
       const ids=Array.isArray(doc.isbn)?doc.isbn:[];
-      // Prefer docs that explicitly contain the scanned ISBN. If OL returns only
-      // one doc for the ISBN query, accept its ISBN family as well.
       const exact=ids.map(normalizeISBN).includes(normalized);
       if(exact || (search?.docs||[]).length===1){
-        for(const candidate of ids) add(candidate);
+        const year=Number(doc?.first_publish_year)||null;
+        for(const candidate of ids) add(candidate,{year,source:"search_index"});
       }
     }
   }catch{}
 
-  // Try likely equivalents first and cap requests to stay polite/reasonable.
+  // Mathematical ISBN-10 equivalent remains the first candidate.
   const ten=isbn13To10(normalized);
-  if(ten){
-    const i=out.indexOf(ten);
-    if(i>0){out.splice(i,1);out.unshift(ten)}
-    else if(i<0) out.unshift(ten);
-  }
+  if(ten) add(ten,{year:0,source:"isbn10_equivalent"});
 
-  return out.slice(0,30);
+  return [...candidates.values()]
+    .sort((a,b)=>a.year-b.year || a.order-b.order)
+    .map(x=>x.isbn)
+    .slice(0,20);
 }
 async function searchBookfinderExactISBN(page,isbn){
   await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
@@ -572,9 +853,9 @@ async function searchBookfinderExactISBN(page,isbn){
 
   await input.click({clickCount:3}).catch(()=>{});
   await input.fill("");
-  await input.type(isbn,{delay:30});
+  await input.fill(isbn);
   const submitMeta=await submitSearch(page,input);
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(150);
 
   let searchText=await page.locator("body").innerText().catch(()=>"");
   const resultCount=parseBookfinderResultCount(searchText);
@@ -598,12 +879,12 @@ async function searchBookfinderExactISBN(page,isbn){
   if(exactLink){
     await exactLink.click();
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(450);
+    await page.waitForTimeout(100);
     text=await page.locator("body").innerText().catch(()=>searchText);
   }else if(singleDetailLink && (verifiedOnSearch || uniqueISBNSearchResult)){
     await singleDetailLink.click();
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(450);
+    await page.waitForTimeout(100);
     text=await page.locator("body").innerText().catch(()=>searchText);
   }
 
@@ -687,7 +968,7 @@ async function searchBookfinderByTitleAuthor(page,title,author){
   }
 
   await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(150);
 
   const bodyText=await page.locator("body").innerText();
   const lower=bodyText.toLowerCase();
@@ -735,7 +1016,7 @@ async function searchBookfinderByTitleAuthor(page,title,author){
 
     await match.link.click();
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(100);
     const detailText=await page.locator("body").innerText();
 
     if(/AR Quiz No\./i.test(detailText)){
@@ -856,7 +1137,7 @@ async function submitQuickSearch(page,input){
             page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
             btn.click()
           ]);
-          await page.waitForTimeout(650);
+          await page.waitForTimeout(150);
           return meta;
         }
       }
@@ -867,7 +1148,7 @@ async function submitQuickSearch(page,input){
     page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
     input.press("Enter")
   ]);
-  await page.waitForTimeout(650);
+  await page.waitForTimeout(150);
   return {method:"quick-enter-fallback"};
 }
 
@@ -884,7 +1165,7 @@ async function searchBookfinderQuickByISBN(page,isbn){
 
   await input.click({clickCount:3}).catch(()=>{});
   await input.fill("");
-  await input.type(isbn,{delay:35});
+  await input.fill(isbn);
   const submitMeta=await submitQuickSearch(page,input);
 
   const searchText=await page.locator("body").innerText().catch(()=>"");
@@ -907,7 +1188,7 @@ async function searchBookfinderQuickByISBN(page,isbn){
   if(detail){
     await detail.click();
     await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(100);
     const detailText=await page.locator("body").innerText().catch(()=>"");
     if(/AR Quiz No\./i.test(detailText)) text=detailText;
   }
@@ -970,11 +1251,57 @@ async function diagnosticSnapshot(page,extra={}){
   };
 }
 
+
+async function runFallbackBatch(context,tasks){
+  const usable=tasks.filter(Boolean);
+  if(!usable.length) return null;
+  return await new Promise(resolve=>{
+    let remaining=usable.length;
+    let settled=false;
+    const finishMiss=()=>{
+      remaining--;
+      if(!settled && remaining===0){settled=true;resolve(null)}
+    };
+    for(const task of usable){
+      (async()=>{
+        const page=await context.newPage();
+        try{
+          const result=await task.run(page);
+          if(!settled && result){settled=true;resolve({...result,fallbackKind:task.kind})}
+        }catch(e){
+          try{task.onError?.(e)}catch{}
+        }finally{
+          await page.close().catch(()=>{});
+          finishMiss();
+        }
+      })().catch(()=>finishMiss());
+    }
+  });
+}
+
+async function runFallbackTasks(context,tasks,batchSize=3){
+  for(let i=0;i<tasks.length;i+=batchSize){
+    const found=await runFallbackBatch(context,tasks.slice(i,i+batchSize));
+    if(found) return found;
+  }
+  return null;
+}
+
 async function performLookup(isbn,{refresh=false}={}) {
   const hit=cache.get(isbn);
   const cacheComplete=Boolean(hit?.value?.title && hit?.value?.author);
   if(!refresh && hit && cacheComplete && Date.now()-hit.time<CACHE_TTL_MS) {
     return {...hit.value,cached:true};
+  }
+  if(!refresh){
+    const miss=noArCache.get(isbn);
+    if(miss && Date.now()-miss.time<NO_AR_CACHE_TTL_MS){
+      const e=new Error("No AR result was found by ISBN, related editions, or a unique title/author match.");
+      e.code="NOT_FOUND";
+      e.bib=miss.bib||null;
+      e.diagnostics={...(miss.diagnostics||{}),cachedNoAr:true};
+      throw e;
+    }
   }
 
   const bibPromise=lookupBibliographic(isbn);
@@ -991,9 +1318,9 @@ async function performLookup(isbn,{refresh=false}={}) {
     const input=await findISBNInput(page);
     await input.click({clickCount:3}).catch(()=>{});
     await input.fill("");
-    await input.type(isbn,{delay:35});
+    await input.fill(isbn);
     const submitMeta=await submitSearch(page,input);
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(150);
     let searchText=await page.locator("body").innerText();
     const isbnDiagnostics=await diagnosticSnapshot(page,{
       searchedISBN:isbn,
@@ -1022,141 +1349,121 @@ async function performLookup(isbn,{refresh=false}={}) {
         /no results|no books|did not match|no matches/i.test(searchText)
       )) && !searchHasAR){
 
-      // First try the mathematically equivalent ISBN-10 for a 978 ISBN-13.
-      // Some Bookfinder records index one representation but not the other.
+      const fallbackStartedAt=Date.now();
       const equivalent10=isbn13To10(isbn);
+      const siblingPromise=lookupSiblingISBNs(isbn).catch(e=>{
+        isbnDiagnostics.siblingLookupError=String(e?.message||e).slice(0,220);
+        return [];
+      });
+
+      // v5.7 speed pass: independent authoritative fallback routes run concurrently
+      // in small batches. Each route still has to produce a verified Bookfinder result;
+      // concurrency changes latency, not the acceptance standard.
+      const fastTasks=[];
       if(equivalent10){
-        try{
-          const eqResult=await searchBookfinderExactISBN(page,equivalent10);
-          if(eqResult?.found){
-            const eqAR=eqResult.ar;
-            isbnDiagnostics.equivalentISBNAttempt=eqResult.diagnostics;
-            const value={
-              ...eqAR,
-              isbn,
-              scannedISBN:isbn,
-              title:bib?.title||null,
-              author:bib?.author||null,
-              cover:bib?.cover||null,
-              pages:bib?.pages||null,
-              metadataSource:bib?.metadataSource||"AR Bookfinder",
-              arSource:"AR Bookfinder",
-              matchBasis:"equivalent_isbn",
-              matchedISBN:equivalent10,
-              lookedUpAt:new Date().toISOString()
-            };
-            cache.set(isbn,{time:Date.now(),value});
-            return value;
-          }else if(eqResult?.diagnostics){
-            isbnDiagnostics.equivalentISBNAttempt=eqResult.diagnostics;
-          }
-        }catch(eqErr){
-          console.warn("[ISBN-10 fallback]",eqErr?.message||eqErr);
-        }
+        fastTasks.push({
+          kind:"equivalent_isbn",
+          run:async p=>{
+            const r=await searchBookfinderExactISBN(p,equivalent10);
+            if(r?.diagnostics) isbnDiagnostics.equivalentISBNAttempt=r.diagnostics;
+            if(!r?.found) return null;
+            return {ar:r.ar,matchedISBN:equivalent10,matchBasis:"equivalent_isbn"};
+          },
+          onError:e=>{isbnDiagnostics.equivalentISBNError=String(e?.message||e).slice(0,220)}
+        });
       }
-
-      // Then mirror the simple Bookfinder search used by a person on the main page.
-      try{
-        const quick=await searchBookfinderQuickByISBN(page,isbn);
-        if(quick?.found){
-          const value={
-            ...quick.ar,
-            isbn,
-            title:bib?.title||quick.identity?.title||null,
-            author:bib?.author||quick.identity?.author||null,
-            cover:bib?.cover||null,
-            pages:bib?.pages||null,
-            metadataSource:(bib?.title||bib?.author)?(bib.metadataSource||"Open Library"):"AR Bookfinder",
-            arSource:"AR Bookfinder",
-            matchBasis:"quick_isbn_unique",
-            lookedUpAt:new Date().toISOString()
-          };
-          cache.set(isbn,{time:Date.now(),value});
-          return value;
-        }
-        if(quick?.diagnostics) isbnDiagnostics.quickSearch=quick.diagnostics;
-      }catch(quickErr){
-        console.warn("[quick ISBN fallback]",quickErr?.message||quickErr);
-      }
-
-      // v5.2: Try the strict title+author match BEFORE enumerating sibling editions.
-      // The beta data exposed two false-negative families:
-      // (1) newer reprints whose AR quiz is indexed under an older edition, and
-      // (2) exact ISBNs that Bookfinder intermittently reports as no-result.
-      // A unique title+author match resolves both quickly and conservatively; sibling
-      // ISBN enumeration remains as the fallback for books such as Cora where it is needed.
+      fastTasks.push({
+        kind:"quick_isbn_unique",
+        run:async p=>{
+          const q=await searchBookfinderQuickByISBN(p,isbn);
+          if(q?.diagnostics) isbnDiagnostics.quickSearch=q.diagnostics;
+          if(!q?.found) return null;
+          return {ar:q.ar,identity:q.identity,matchBasis:"quick_isbn_unique"};
+        },
+        onError:e=>{isbnDiagnostics.quickSearchError=String(e?.message||e).slice(0,220)}
+      });
       if(bib?.title && bib?.author){
-        try{
-          await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
-          const fallback=await searchBookfinderByTitleAuthor(page,bib.title,bib.author);
-          isbnDiagnostics.titleAuthorAttempt={
-            title:bib.title,
-            author:bib.author,
-            found:Boolean(fallback)
-          };
-          if(fallback){
-            const ar=parseAR(fallback.text,isbn,fallback.pageUrl);
-            const value={
-              ...ar,
-              title:bib.title,
-              author:bib.author,
-              cover:bib.cover||null,
-              pages:bib.pages||null,
-              metadataSource:bib.metadataSource||"Open Library",
-              arSource:"AR Bookfinder",
-              matchBasis:"title_author",
-              lookedUpAt:new Date().toISOString()
-            };
-            cache.set(isbn,{time:Date.now(),value});
-            return value;
-          }
-        }catch(fallbackErr){
-          isbnDiagnostics.titleAuthorAttempt={
-            title:bib.title,
-            author:bib.author,
-            found:false,
-            error:String(fallbackErr?.message||fallbackErr).slice(0,220)
-          };
-          console.warn("[title-author fallback]",fallbackErr?.message||fallbackErr);
-        }
+        fastTasks.push({
+          kind:"title_author",
+          run:async p=>{
+            await p.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
+            const f=await searchBookfinderByTitleAuthor(p,bib.title,bib.author);
+            isbnDiagnostics.titleAuthorAttempt={title:bib.title,author:bib.author,found:Boolean(f)};
+            if(!f) return null;
+            return {ar:parseAR(f.text,isbn,f.pageUrl),matchBasis:"title_author"};
+          },
+          onError:e=>{isbnDiagnostics.titleAuthorAttempt={title:bib.title,author:bib.author,found:false,error:String(e?.message||e).slice(0,220)}}
+        });
       }
 
-      // If the unique title+author path does not work, try alternate ISBNs for the
-      // same Open Library work. Preserve the proven Cora behavior.
-      try{
-        const siblings=await lookupSiblingISBNs(isbn);
-        isbnDiagnostics.siblingCandidates=siblings.slice(0,12);
-        isbnDiagnostics.siblingAttempts=[];
-        for(const sibling of siblings){
-          const siblingResult=await searchBookfinderExactISBN(page,sibling);
-          if(siblingResult?.diagnostics){
-            if(isbnDiagnostics.siblingAttempts.length<12) isbnDiagnostics.siblingAttempts.push(siblingResult.diagnostics);
-          }
-          if(siblingResult?.found){
-            const siblingAR=siblingResult.ar;
-            const siblingBib=bib||await lookupBibliographic(sibling).catch(()=>null);
-            const value={
-              ...siblingAR,
-              isbn,
-              scannedISBN:isbn,
-              title:siblingBib?.title||bfIdentity.title||null,
-              author:siblingBib?.author||bfIdentity.author||null,
-              cover:siblingBib?.cover||null,
-              pages:siblingBib?.pages||null,
-              metadataSource:siblingBib?.metadataSource||"AR Bookfinder",
-              arSource:"AR Bookfinder",
-              matchBasis:"related_edition_isbn",
-              matchedISBN:sibling,
-              lookedUpAt:new Date().toISOString()
-            };
-            cache.set(isbn,{time:Date.now(),value});
-            return value;
-          }
-        }
-      }catch(editionErr){
-        console.warn("[related-edition fallback]",editionErr?.message||editionErr);
+      let fallback=await runFallbackTasks(context,fastTasks,3);
+      if(fallback){
+        const value={
+          ...fallback.ar,
+          isbn,
+          scannedISBN:isbn,
+          title:bib?.title||fallback.identity?.title||bfIdentity.title||null,
+          author:bib?.author||fallback.identity?.author||bfIdentity.author||null,
+          cover:bib?.cover||null,
+          pages:bib?.pages||null,
+          metadataSource:(bib?.title||bib?.author)?(bib.metadataSource||"Open Library"):"AR Bookfinder",
+          arSource:"AR Bookfinder",
+          matchBasis:fallback.matchBasis,
+          matchedISBN:fallback.matchedISBN||null,
+          lookedUpAt:new Date().toISOString()
+        };
+        noArCache.delete(isbn);
+        cache.set(isbn,{time:Date.now(),value});
+        return value;
       }
 
+      const siblingCandidates=await siblingPromise;
+      isbnDiagnostics.siblingCandidates=siblingCandidates.slice(0,12);
+      isbnDiagnostics.siblingAttempts=[];
+      const attempted=new Set(equivalent10?[equivalent10]:[]);
+      const siblingTasks=siblingCandidates
+        .filter(x=>!attempted.has(x))
+        .map(sibling=>({
+          kind:"related_edition_isbn",
+          run:async p=>{
+            const r=await searchBookfinderExactISBN(p,sibling);
+            if(r?.diagnostics && isbnDiagnostics.siblingAttempts.length<12){
+              isbnDiagnostics.siblingAttempts.push(r.diagnostics);
+            }
+            if(!r?.found) return null;
+            return {ar:r.ar,matchedISBN:sibling,matchBasis:"related_edition_isbn"};
+          },
+          onError:e=>{
+            if(isbnDiagnostics.siblingAttempts.length<12){
+              isbnDiagnostics.siblingAttempts.push({isbn:sibling,error:String(e?.message||e).slice(0,220)});
+            }
+          }
+        }));
+
+      fallback=await runFallbackTasks(context,siblingTasks,3);
+      isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
+      if(fallback){
+        const value={
+          ...fallback.ar,
+          isbn,
+          scannedISBN:isbn,
+          title:bib?.title||bfIdentity.title||null,
+          author:bib?.author||bfIdentity.author||null,
+          cover:bib?.cover||null,
+          pages:bib?.pages||null,
+          metadataSource:bib?.metadataSource||"AR Bookfinder",
+          arSource:"AR Bookfinder",
+          matchBasis:"related_edition_isbn",
+          matchedISBN:fallback.matchedISBN,
+          lookedUpAt:new Date().toISOString()
+        };
+        noArCache.delete(isbn);
+        cache.set(isbn,{time:Date.now(),value});
+        return value;
+      }
+
+      isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
+      noArCache.set(isbn,{time:Date.now(),bib,diagnostics:isbnDiagnostics});
       const e=new Error("No AR result was found by ISBN, related editions, or a unique title/author match.");
       e.code="NOT_FOUND";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
     }
@@ -1168,12 +1475,12 @@ async function performLookup(isbn,{refresh=false}={}) {
     if(exactLink){
       await exactLink.click();
       await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(100);
       text=await page.locator("body").innerText();
     }else if(singleDetailLink && (verifiedOnSearch || uniqueISBNSearchResult)){
       await singleDetailLink.click();
       await page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{});
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(100);
       text=await page.locator("body").innerText();
     }
 
@@ -1224,6 +1531,7 @@ async function performLookup(isbn,{refresh=false}={}) {
       pages:bib?.pages||null,
       metadataSource:bib?.title||bib?.author ? (bib.metadataSource||"Open Library") : "AR Bookfinder"
     };
+    noArCache.delete(isbn);
     cache.set(isbn,{time:Date.now(),value});
     return {...value,cached:false};
   }finally{
@@ -1277,6 +1585,7 @@ app.post("/api/telemetry",async(req,res)=>{
     // Send the response immediately; persistence is best-effort.
     res.status(204).end();
     void appendTelemetry(event);
+    if(event.eventName==="lookup_success" && event.properties?.isbn) rememberRegressionCase(event);
   }catch{
     // Telemetry failure should not surface to the product.
     if(!res.headersSent) res.status(204).end();
@@ -1285,7 +1594,17 @@ app.post("/api/telemetry",async(req,res)=>{
 
 app.get("/api/admin/analytics",requireAdmin,async(_req,res)=>{
   const events=await readTelemetryEvents();
-  res.json({ok:true,events});
+  res.json({ok:true,events,serverVerification:{running:serverVerificationRunning,latest:serverVerificationLatest,progress:serverVerificationProgress}});
+});
+
+app.get("/api/admin/server-recheck-status",requireAdmin,async(_req,res)=>{
+  res.json({ok:true,running:serverVerificationRunning,latest:serverVerificationLatest,progress:serverVerificationProgress});
+});
+
+app.post("/api/admin/server-recheck",requireAdmin,async(_req,res)=>{
+  if(serverVerificationRunning) return res.status(202).json({ok:true,started:false,running:true,latest:serverVerificationLatest,progress:serverVerificationProgress});
+  res.status(202).json({ok:true,started:true});
+  void runServerVerification({reason:"admin_manual",force:true});
 });
 
 function analyticsAdminHtml(){
@@ -1311,6 +1630,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 .good{color:#35623b}.bad{color:#9a4038}.muted{color:#73776f}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .timeline{max-height:420px;overflow:auto}.timeline div{padding:7px 0;border-bottom:1px solid #eee;font-size:12px}
 .clickable{cursor:pointer;text-decoration:underline;text-decoration-style:dotted}
+.verify-progress-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:10px 0 12px}.verify-progress-grid>div{background:#f7f8f5;border-radius:10px;padding:10px}.verify-progress-grid b{display:block;font-size:20px}.verify-progress-grid span{font-size:11px;color:#73776f}.status-checking{font-weight:700}.status-completed{color:#35623b}.status-queued{color:#73776f}
 @media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.cols{grid-template-columns:1fr}}
 </style>
 </head>
@@ -1321,6 +1641,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <select id="window"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="9999">All time</option></select>
 <select id="version"><option value="">All versions</option></select>
 <button id="refresh">Refresh</button>
+<button id="runServerRecheck">Run server verification</button>
+<span id="serverRecheckStatus" class="muted"></span>
 </div>
 <div id="metrics" class="grid"></div>
 <div class="section"><h2>Activation & uptake</h2><div class="card" id="funnel"></div></div>
@@ -1328,6 +1650,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <div class="section"><h2>Behavior</h2><div class="card"><div id="behavior"></div></div></div>
 <div class="section"><h2>Reliability</h2><div class="card"><div id="reliability"></div></div></div>
 </div>
+<div class="section"><h2>Fix verification</h2><div class="card" id="fixVerification"></div></div>
 <div class="section"><h2>Book / lookup quality</h2><div class="card" id="books"></div></div>
 <div class="section"><h2>Recent sessions</h2><div class="card" id="sessions"></div></div>
 <div class="section"><h2>Selected installation timeline</h2><div class="card timeline" id="timeline"><span class="muted">Click an installation in Recent sessions.</span></div></div>
@@ -1415,11 +1738,72 @@ function render(){
  '<tr><td>Lookup p90</td><td>'+(quantile(durations,.9)?.toFixed(0)||"—")+' ms</td></tr>'+
  '<tr><td>Lookup p95</td><td>'+(quantile(durations,.95)?.toFixed(0)||"—")+' ms</td></tr>'+
  '<tr><td>Retries that later succeeded</td><td>'+retryRecovered+' / '+retriedKeys.size+'</td></tr>'+
- '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout").length+'</td></tr>'+
+ '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout"||e.properties?.errorCode==="LOOKUP_TIMEOUT").length+'</td></tr>'+
  '<tr><td>Backup failures</td><td>'+ev.filter(e=>e.eventName==="backup_failed").length+'</td></tr>'+
  '<tr><td>Restore failures</td><td>'+ev.filter(e=>e.eventName==="restore_failed").length+'</td></tr></table>'+
  '<div style="height:12px"></div><b>Successful match paths</b>'+bars(countBy(match,e=>e.properties?.matchBasis||"isbn"))+
  '<div style="height:12px"></div><b>Error types</b>'+bars(countBy(errs,e=>e.properties?.errorCode||e.properties?.errorType||"error"));
+
+ const svProgress=window.__serverVerificationProgress||null;
+ const progressBox=svProgress
+   ? '<b>'+(svProgress.finishedAt?'Last server verification progress':'Live server verification progress')+'</b>'+
+     '<div class="verify-progress-grid">'+
+       '<div><b>'+Number(svProgress.queued||0)+'</b><span>Queued</span></div>'+
+       '<div><b>'+Number(svProgress.checking||0)+'</b><span>Checking now</span></div>'+
+       '<div><b>'+Number(svProgress.completed||0)+'</b><span>Completed</span></div>'+
+       '<div><b>'+Number(svProgress.remaining||0)+'</b><span>Remaining</span></div>'+
+     '</div>'+
+     '<div class="muted">Started '+(svProgress.startedAt?new Date(svProgress.startedAt).toLocaleString():'—')+
+       (svProgress.startedAt?' · elapsed '+Math.max(0,Math.round(((svProgress.finishedAt?new Date(svProgress.finishedAt).getTime():Date.now())-new Date(svProgress.startedAt).getTime())/1000))+'s':'')+'</div>'+
+     ((svProgress.items||[]).length?'<div style="height:10px"></div><table><tr><th>ISBN</th><th>Type</th><th>Status</th><th>Prior</th><th>Result</th><th>Elapsed</th></tr>'+
+       (svProgress.items||[]).slice().sort((a,b)=>{const order={checking:0,queued:1,completed:2};return (order[a.status]??9)-(order[b.status]??9)||String(a.isbn).localeCompare(String(b.isbn))}).map(x=>
+         '<tr><td class="mono">'+esc(x.isbn||'')+'</td><td>'+esc(x.historical&&x.regression?'historical + regression':x.historical?'historical':'regression')+'</td><td class="status-'+esc(x.status||'')+'">'+esc(x.status||'')+'</td><td>'+esc((x.priorStatuses||[]).join(', ')||'—')+'</td><td>'+esc(x.resultStatus||x.outcome||'—')+'</td><td>'+esc(x.durationMs!=null?Math.round(Number(x.durationMs)/1000)+'s':(x.startedAt?Math.max(0,Math.round((Date.now()-new Date(x.startedAt).getTime())/1000))+'s':'—'))+'</td></tr>'
+       ).join('')+'</table>':'')+
+     '<div style="height:18px;border-top:1px solid #eceee9;margin-top:18px;padding-top:16px"></div>'
+   : '';
+
+ const serverRuns=raw.filter(e=>e.eventName==="server_verification_finished").slice().sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
+ const latestServerRun=serverRuns[0]||null;
+ const latestRunId=latestServerRun?.sessionId||null;
+ const serverHistorical=latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_historical_recheck_completed"):[];
+ const serverRegression=latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_regression_recheck_completed"):[];
+ const serverBox=latestServerRun
+   ? '<b>Immediate server verification · '+esc(latestServerRun.properties?.serverVersion||latestServerRun.appVersion||"")+'</b>'+ 
+     '<table><tr><th>Historical unresolved</th><th>Fixed → AR</th><th>Verified no AR</th><th>Still failing</th><th>Regression tests</th><th>Passing</th></tr>'+ 
+     '<tr><td>'+Number(latestServerRun.properties?.historicalTotal||0)+'</td><td class="good">'+Number(latestServerRun.properties?.historicalFixedToAr||0)+'</td><td>'+Number((latestServerRun.properties?.historicalConfirmedNoAr||0)+(latestServerRun.properties?.historicalResolvedToNoAr||0))+'</td><td class="'+(latestServerRun.properties?.historicalStillError?'bad':'')+'">'+Number(latestServerRun.properties?.historicalStillError||0)+'</td><td>'+Number(latestServerRun.properties?.regressionTotal||0)+'</td><td class="'+(latestServerRun.properties?.regressionFailed?'bad':'good')+'">'+Number(latestServerRun.properties?.regressionPassed||0)+' / '+Number(latestServerRun.properties?.regressionTotal||0)+'</td></tr></table>'+ 
+     (serverHistorical.length?'<div style="height:12px"></div><b>Server historical results</b><table><tr><th>ISBN</th><th>Prior</th><th>Current</th><th>Outcome</th><th>Affected backups</th></tr>'+serverHistorical.slice().sort((a,b)=>String(a.properties?.isbn).localeCompare(String(b.properties?.isbn))).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc((e.properties?.priorStatuses||[]).join(", "))+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.outcome||"")+'</td><td>'+Number(e.properties?.affectedBackups||0)+'</td></tr>').join('')+'</table>':'')+
+     (serverRegression.some(e=>!e.properties?.passed)?'<div style="height:12px"></div><b class="bad">Regression failures</b><table><tr><th>ISBN</th><th>Result</th><th>Error</th></tr>'+serverRegression.filter(e=>!e.properties?.passed).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.errorCode||"")+'</td></tr>').join('')+'</table>':'')
+   : '<b>Immediate server verification</b><div class="muted" style="margin-top:6px">No server verification run has completed yet. It runs automatically once per server release; you can also run it manually above.</div>';
+
+ const releaseQueued=ev.filter(e=>e.eventName==="unresolved_books_recheck_queued");
+ const releaseCompleted=ev.filter(e=>e.eventName==="historical_book_recheck_completed");
+ const releaseMap=new Map();
+ for(const e of releaseQueued){
+   const release=e.properties?.release||e.appVersion||"unknown";
+   if(!releaseMap.has(release))releaseMap.set(release,{release,eligible:0,retested:0,fixed:0,confirmed:0,resolvedNoAr:0,stillFailing:0});
+   releaseMap.get(release).eligible+=Number(e.properties?.count)||0;
+ }
+ for(const e of releaseCompleted){
+   const release=e.properties?.release||e.properties?.toVersion||e.appVersion||"unknown";
+   if(!releaseMap.has(release))releaseMap.set(release,{release,eligible:0,retested:0,fixed:0,confirmed:0,resolvedNoAr:0,stillFailing:0});
+   const r=releaseMap.get(release);r.retested++;
+   const outcome=e.properties?.outcome;
+   if(outcome==="fixed_to_ar")r.fixed++;
+   else if(outcome==="confirmed_no_ar")r.confirmed++;
+   else if(outcome==="resolved_to_no_ar")r.resolvedNoAr++;
+   else if(outcome==="still_error"||outcome==="still_unknown")r.stillFailing++;
+ }
+ const releaseRows=[...releaseMap.values()].sort((a,b)=>String(b.release).localeCompare(String(a.release)));
+ const fixSummary=releaseRows.length
+   ? '<table><tr><th>Release</th><th>Eligible</th><th>Retested</th><th>Fixed → AR</th><th>Confirmed no AR</th><th>Error → no AR</th><th>Still failing</th><th>Waiting</th></tr>'+ 
+     releaseRows.map(r=>'<tr><td>'+esc(r.release)+'</td><td>'+r.eligible+'</td><td>'+r.retested+'</td><td class="good">'+r.fixed+'</td><td>'+r.confirmed+'</td><td>'+r.resolvedNoAr+'</td><td class="'+(r.stillFailing?'bad':'')+'">'+r.stillFailing+'</td><td>'+Math.max(0,r.eligible-r.retested)+'</td></tr>').join('')+'</table>'
+   : '<span class="muted">No release rechecks recorded yet.</span>';
+ const recentFixes=releaseCompleted.slice().sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp))).slice(0,20);
+ const fixDetails=recentFixes.length
+   ? '<div style="height:14px"></div><b>Recent historical rechecks</b><table><tr><th>ISBN</th><th>Old</th><th>New</th><th>Version</th><th>Outcome</th></tr>'+ 
+     recentFixes.map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.oldStatus||"—")+'</td><td>'+esc(e.properties?.newStatus||"—")+'</td><td>'+esc((e.properties?.fromVersion||"earlier")+' → '+(e.properties?.toVersion||e.appVersion||""))+'</td><td>'+esc(e.properties?.outcome||"")+'</td></tr>').join('')+'</table>'
+   : '';
+ $("fixVerification").innerHTML=progressBox+serverBox+'<div style="height:18px;border-top:1px solid #eceee9;margin-top:18px;padding-top:16px"><b>Client repair after user returns</b></div>'+fixSummary+fixDetails;
 
  const scansByISBN=new Map();
  for(const e of ev.filter(e=>e.properties?.isbn)){
@@ -1456,18 +1840,32 @@ async function load(){
  const j=await r.json();raw=j.events||[];
  const versions=[...new Set(raw.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
  $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
+ const sv=j.serverVerification||{};
+ window.__serverVerificationProgress=sv.progress||null;
+ $("serverRecheckStatus").textContent=sv.running?'Server verification running…':(sv.latest?.finishedAt?'Last completed '+new Date(sv.latest.finishedAt).toLocaleString():'');
  render();
+ if(sv.running){clearTimeout(window.__verificationPoll);window.__verificationPoll=setTimeout(load,1500)}
 }
-$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=load;load();
+async function runServerRecheck(){
+ const btn=$("runServerRecheck");btn.disabled=true;$("serverRecheckStatus").textContent='Starting server verification…';
+ try{
+   const r=await fetch("/api/admin/server-recheck",{method:"POST"});
+   if(!r.ok)throw new Error('Could not start');
+   $("serverRecheckStatus").textContent='Server verification running…';
+   setTimeout(load,3000);
+ }catch{$("serverRecheckStatus").textContent='Could not start server verification.'}
+ finally{setTimeout(()=>btn.disabled=false,2500)}
+}
+$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=load;$("runServerRecheck").onclick=runServerRecheck;load();
 </script></body></html>`;
 }
 
 app.get("/admin",requireAdmin,(_req,res)=>res.type("html").send(analyticsAdminHtml()));
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.3.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:SERVER_VERSION,time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"5.3.0",
+  version:SERVER_VERSION,
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1544,7 +1942,11 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.3.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>{
+  console.log(`My AR Shelf v${SERVER_VERSION} listening on ${port}`);
+  // Verify historical unresolved books and known-good regressions once per release.
+  setTimeout(()=>{void runServerVerification({reason:"startup_release",force:false})},2500);
+});
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}

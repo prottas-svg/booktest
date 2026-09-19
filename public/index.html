@@ -606,7 +606,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v5.3</span><span style="opacity:.55">•</span><span>September 19, 2026</span></div>
+<div class="build"><span>v5.7</span><span style="opacity:.55">•</span><span>September 19, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -862,7 +862,7 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-const APP_VERSION='5.3';
+const APP_VERSION='5.7';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
 
@@ -992,6 +992,11 @@ function dataForServerBackup(){
       // Excluding them makes recovery backups much smaller and more robust.
       delete b.diagnostics;
       delete b.forceRefresh;
+      delete b.recheckFromStatus;
+      delete b.recheckFromVersion;
+      delete b.recheckRelease;
+      delete b.retryFromStatus;
+      delete b.lookupTrigger;
       if(b.lookupStatus==='pending') b.lookupStatus='queued';
     }
   }
@@ -1157,7 +1162,7 @@ async function repairMissingBookNames(){
 }
 
 
-const UNRESOLVED_RECHECK_VERSION='5.3';
+const UNRESOLVED_RECHECK_VERSION='5.7';
 const UNRESOLVED_RECHECK_KEY='scan_ar_unresolved_recheck_version_v1';
 
 function queueUnresolvedBooksForReleaseRecheck(){
@@ -1167,6 +1172,9 @@ function queueUnresolvedBooksForReleaseRecheck(){
     for(const book of Object.values(data.books||{})){
       // Never touch a book that already has confirmed AR data.
       if(book.lookupStatus!=='no_ar' && book.lookupStatus!=='error')continue;
+      book.recheckFromStatus=book.lookupStatus;
+      book.recheckFromVersion=book.lastLookupVersion||null;
+      book.recheckRelease=UNRESOLVED_RECHECK_VERSION;
       book.lookupStatus='queued';
       book.error=null;
       book.forceRefresh=true;
@@ -1176,7 +1184,11 @@ function queueUnresolvedBooksForReleaseRecheck(){
     localStorage.setItem(UNRESOLVED_RECHECK_KEY,UNRESOLVED_RECHECK_VERSION);
     if(queued){
       localStorage.setItem(KEY,JSON.stringify(data));
-      trackEvent('unresolved_books_recheck_queued',{count:queued,release:UNRESOLVED_RECHECK_VERSION});
+      trackEvent('unresolved_books_recheck_queued',{
+        count:queued,
+        release:UNRESOLVED_RECHECK_VERSION,
+        toVersion:APP_VERSION
+      });
     }
     return queued;
   }catch{
@@ -1192,10 +1204,20 @@ function pumpQueue(){
   }
 }
 async function lookupBook(book,refresh=false){
-  const statusBeforeLookup=book.lookupStatus;
+  const recheckRelease=book.recheckRelease||null;
+  const statusBeforeLookup=book.recheckFromStatus||book.retryFromStatus||book.lookupStatus;
+  const versionBeforeLookup=book.recheckFromVersion||book.lastLookupVersion||null;
+  const lookupTrigger=recheckRelease?'version_recheck':(book.lookupTrigger||(refresh?'manual_retry':'normal'));
   activeLookups++;
   const telemetryLookupStarted=performance.now();
-  trackEvent('lookup_started',{isbn:book.isbn,refresh:Boolean(refresh||book.forceRefresh)});
+  trackEvent('lookup_started',{
+    isbn:book.isbn,
+    refresh:Boolean(refresh||book.forceRefresh),
+    trigger:lookupTrigger,
+    priorStatus:statusBeforeLookup,
+    priorVersion:versionBeforeLookup,
+    recheckRelease
+  });
   book.lookupStatus='pending';
   book.error=null;
   persist();
@@ -1230,7 +1252,33 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
-      trackEvent('lookup_success',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted),upgradedFromUnresolved:(statusBeforeLookup==='no_ar'||statusBeforeLookup==='error'),matchBasis:j.matchBasis||'isbn',matchedISBN:j.matchedISBN||null,atos:j.atos,points:j.points});
+      book.lastLookupVersion=APP_VERSION;
+      trackEvent('lookup_success',{
+        isbn:book.isbn,
+        durationMs:Math.round(performance.now()-telemetryLookupStarted),
+        upgradedFromUnresolved:(statusBeforeLookup==='no_ar'||statusBeforeLookup==='error'),
+        trigger:lookupTrigger,
+        priorStatus:statusBeforeLookup,
+        priorVersion:versionBeforeLookup,
+        recheckRelease,
+        matchBasis:j.matchBasis||'isbn',
+        matchedISBN:j.matchedISBN||null,
+        quizNumber:j.quizNumber||null,
+        atos:j.atos,
+        points:j.points
+      });
+      if(recheckRelease){
+        trackEvent('historical_book_recheck_completed',{
+          isbn:book.isbn,
+          fromVersion:versionBeforeLookup,
+          toVersion:APP_VERSION,
+          release:recheckRelease,
+          oldStatus:statusBeforeLookup,
+          newStatus:'found',
+          outcome:'fixed_to_ar',
+          quizNumber:j.quizNumber||null
+        });
+      }
       setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':(j.matchBasis==='quick_isbn_unique'?' · ISBN search match':(j.matchBasis==='equivalent_isbn'?' · ISBN equivalent match':''))))}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
@@ -1242,7 +1290,26 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
-      trackEvent('lookup_no_ar',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted)});
+      book.lastLookupVersion=APP_VERSION;
+      trackEvent('lookup_no_ar',{
+        isbn:book.isbn,
+        durationMs:Math.round(performance.now()-telemetryLookupStarted),
+        trigger:lookupTrigger,
+        priorStatus:statusBeforeLookup,
+        priorVersion:versionBeforeLookup,
+        recheckRelease
+      });
+      if(recheckRelease){
+        trackEvent('historical_book_recheck_completed',{
+          isbn:book.isbn,
+          fromVersion:versionBeforeLookup,
+          toVersion:APP_VERSION,
+          release:recheckRelease,
+          oldStatus:statusBeforeLookup,
+          newStatus:'no_ar',
+          outcome:statusBeforeLookup==='error'?'resolved_to_no_ar':'confirmed_no_ar'
+        });
+      }
       setOutcome('noar',bookTitle(book),book.author,['No AR quiz found for this ISBN.',diagnosticSummary(book)].filter(Boolean).join(' · '));
     }else{
       if(j.title) book.title=j.title;
@@ -1261,15 +1328,38 @@ async function lookupBook(book,refresh=false){
       book.error=[e.message,e.detail].filter(Boolean).join(' — ')||'Lookup failed';
     }
     book.lookedUpAt=now();
+    book.lastLookupVersion=APP_VERSION;
     trackEvent(e?.name==='AbortError'?'lookup_timeout':'lookup_error',{
       isbn:book.isbn,
       durationMs:Math.round(performance.now()-telemetryLookupStarted),
+      trigger:lookupTrigger,
+      priorStatus:statusBeforeLookup,
+      priorVersion:versionBeforeLookup,
+      recheckRelease,
       errorType:e?.name||'Error',
       errorCode:e?.detail||null
     });
+    if(recheckRelease){
+      trackEvent('historical_book_recheck_completed',{
+        isbn:book.isbn,
+        fromVersion:versionBeforeLookup,
+        toVersion:APP_VERSION,
+        release:recheckRelease,
+        oldStatus:statusBeforeLookup,
+        newStatus:'error',
+        outcome:'still_error',
+        errorType:e?.name||'Error',
+        errorCode:e?.detail||null
+      });
+    }
     setOutcome('error',bookTitle(book),book.author,[book.error,diagnosticSummary(book)].filter(Boolean).join(' · '));
   }finally{
     delete book.forceRefresh;
+    delete book.recheckFromStatus;
+    delete book.recheckFromVersion;
+    delete book.recheckRelease;
+    delete book.retryFromStatus;
+    delete book.lookupTrigger;
     activeLookups--;
     persist();
     renderAll();
@@ -1308,7 +1398,7 @@ function diagnosticSummary(book){
 function diagnosticPayload(book){
   if(!book?.diagnostics)return '';
   return JSON.stringify({
-    appVersion:'5.1',
+    appVersion:APP_VERSION,
     isbn:book.isbn,
     title:book.title||null,
     author:book.author||null,
@@ -1329,7 +1419,19 @@ async function copyDiagnostics(isbn){
   }
 }
 
-function retry(isbn){const b=data.books[isbn];if(!b)return;trackEvent('lookup_retry',{isbn,priorStatus:b.lookupStatus});b.lookupStatus='queued';b.error=null;persist();renderAll();pumpQueue()}
+function retry(isbn){
+  const b=data.books[isbn];
+  if(!b)return;
+  const priorStatus=b.lookupStatus;
+  trackEvent('lookup_retry',{isbn,priorStatus});
+  b.retryFromStatus=priorStatus;
+  b.lookupTrigger='manual_retry';
+  b.lookupStatus='queued';
+  b.error=null;
+  persist();
+  renderAll();
+  pumpQueue();
+}
 
 async function startCamera(){
   if(currentPage!=='scanPage'||!$('cameraToggle').checked||scanning)return;
