@@ -23,7 +23,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "5.8.0";
+const SERVER_VERSION = "5.9.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -1641,6 +1641,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <select id="window"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="9999">All time</option></select>
 <select id="version"><option value="">All versions</option></select>
 <button id="refresh">Refresh</button>
+<span id="refreshStatus" class="muted"></span>
 <button id="runServerRecheck">Run server verification</button>
 <span id="serverRecheckStatus" class="muted"></span>
 </div>
@@ -1661,10 +1662,16 @@ const $=id=>document.getElementById(id);
 const uniq=a=>new Set(a).size;
 function pct(a,b){return b?Math.round(a/b*100):0}
 function dt(e){return new Date(e.timestamp)}
-function filtered(){
+function filteredAll(){
  const days=Number($("window").value), v=$("version").value;
  const cutoff=Date.now()-days*86400000;
  return raw.filter(e=>dt(e).getTime()>=cutoff && (!v||e.appVersion===v));
+}
+function isServerEvent(e){
+ return e?.installId==="server_verification" || e?.platform==="server" || String(e?.eventName||"").startsWith("server_");
+}
+function filtered(){
+ return filteredAll().filter(e=>!isServerEvent(e));
 }
 function quantile(vals,q){
  const a=vals.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return null;
@@ -1763,12 +1770,18 @@ function render(){
    : '';
 
  const serverRuns=raw.filter(e=>e.eventName==="server_verification_finished").slice().sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
- const latestServerRun=serverRuns[0]||null;
+ const telemetryLatestRun=serverRuns[0]||null;
+ const apiLatest=window.__serverVerificationLatest||null;
+ const apiLatestFinished=apiLatest?.finishedAt?{
+   timestamp:apiLatest.finishedAt, sessionId:apiLatest.runId, appVersion:apiLatest.serverVersion, properties:apiLatest
+ }:null;
+ const latestServerRun=(apiLatestFinished && (!telemetryLatestRun || String(apiLatestFinished.timestamp)>String(telemetryLatestRun.timestamp)))?apiLatestFinished:telemetryLatestRun;
  const latestRunId=latestServerRun?.sessionId||null;
  const serverHistorical=latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_historical_recheck_completed"):[];
  const serverRegression=latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_regression_recheck_completed"):[];
+ const staleWhileRunning=Boolean(window.__serverVerificationRunning && latestServerRun && svProgress?.runId && latestRunId!==svProgress.runId);
  const serverBox=latestServerRun
-   ? '<b>Immediate server verification · '+esc(latestServerRun.properties?.serverVersion||latestServerRun.appVersion||"")+'</b>'+ 
+   ? '<b>'+(staleWhileRunning?'Previous completed verification':'Immediate server verification')+' · '+esc(latestServerRun.properties?.serverVersion||latestServerRun.appVersion||"")+'</b>'+ 
      '<table><tr><th>Historical unresolved</th><th>Fixed → AR</th><th>Verified no AR</th><th>Still failing</th><th>Regression tests</th><th>Passing</th></tr>'+ 
      '<tr><td>'+Number(latestServerRun.properties?.historicalTotal||0)+'</td><td class="good">'+Number(latestServerRun.properties?.historicalFixedToAr||0)+'</td><td>'+Number((latestServerRun.properties?.historicalConfirmedNoAr||0)+(latestServerRun.properties?.historicalResolvedToNoAr||0))+'</td><td class="'+(latestServerRun.properties?.historicalStillError?'bad':'')+'">'+Number(latestServerRun.properties?.historicalStillError||0)+'</td><td>'+Number(latestServerRun.properties?.regressionTotal||0)+'</td><td class="'+(latestServerRun.properties?.regressionFailed?'bad':'good')+'">'+Number(latestServerRun.properties?.regressionPassed||0)+' / '+Number(latestServerRun.properties?.regressionTotal||0)+'</td></tr></table>'+ 
      (serverHistorical.length?'<div style="height:12px"></div><b>Server historical results</b><table><tr><th>ISBN</th><th>Prior</th><th>Current</th><th>Outcome</th><th>Affected backups</th></tr>'+serverHistorical.slice().sort((a,b)=>String(a.properties?.isbn).localeCompare(String(b.properties?.isbn))).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc((e.properties?.priorStatuses||[]).join(", "))+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.outcome||"")+'</td><td>'+Number(e.properties?.affectedBackups||0)+'</td></tr>').join('')+'</table>':'')+
@@ -1834,18 +1847,39 @@ function renderTimeline(id){
  const ev=filtered().filter(e=>e.installId===id).slice(-250).reverse();
  $("timeline").innerHTML=ev.length?ev.map(e=>'<div><b>'+new Date(e.timestamp).toLocaleString()+'</b> · '+esc(e.eventName)+' · <span class="muted">'+esc(e.page||"")+'</span><br><span class="mono">'+esc(JSON.stringify(e.properties||{}))+'</span></div>').join(''):'No events.';
 }
-async function load(){
- const r=await fetch("/api/admin/analytics");
- if(!r.ok){$("metrics").innerHTML='<div class="card">Could not load analytics.</div>';return}
- const j=await r.json();raw=j.events||[];
- const versions=[...new Set(raw.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
- $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
- const sv=j.serverVerification||{};
- window.__serverVerificationProgress=sv.progress||null;
- $("serverRecheckStatus").textContent=sv.running?'Server verification running…':(sv.latest?.finishedAt?'Last completed '+new Date(sv.latest.finishedAt).toLocaleString():'');
- render();
- if(sv.running){clearTimeout(window.__verificationPoll);window.__verificationPoll=setTimeout(load,1500)}
+async function load({manual=false}={}){
+ const btn=$("refresh");
+ const priorVersion=$("version").value;
+ if(manual){
+   btn.disabled=true;btn.textContent='Refreshing…';
+   $("refreshStatus").textContent='Loading latest analytics…';
+ }
+ try{
+   const r=await fetch("/api/admin/analytics",{cache:"no-store"});
+   if(!r.ok)throw new Error('Could not load analytics');
+   const j=await r.json();raw=j.events||[];
+   const userEvents=raw.filter(e=>!isServerEvent(e));
+   const versions=[...new Set(userEvents.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
+   $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
+   if(versions.includes(priorVersion))$("version").value=priorVersion;
+   const sv=j.serverVerification||{};
+   window.__serverVerificationProgress=sv.progress||null;
+   window.__serverVerificationLatest=sv.latest||null;
+   window.__serverVerificationRunning=Boolean(sv.running);
+   $("serverRecheckStatus").textContent=sv.running?'Server verification running…':(sv.latest?.finishedAt?'Last completed '+new Date(sv.latest.finishedAt).toLocaleString():'');
+   render();
+   if(manual){
+     btn.textContent='Updated ✓';
+     $("refreshStatus").textContent='Last updated '+new Date().toLocaleTimeString();
+     setTimeout(()=>{btn.textContent='Refresh';btn.disabled=false},1400);
+   }
+   if(sv.running){clearTimeout(window.__verificationPoll);window.__verificationPoll=setTimeout(()=>load(),1500)}
+ }catch(e){
+   if(manual){btn.textContent='Refresh failed';$("refreshStatus").textContent='Could not update';setTimeout(()=>{btn.textContent='Refresh';btn.disabled=false},1800)}
+   else $("metrics").innerHTML='<div class="card">Could not load analytics.</div>';
+ }
 }
+async function manualRefresh(){return load({manual:true})}
 async function runServerRecheck(){
  const btn=$("runServerRecheck");btn.disabled=true;$("serverRecheckStatus").textContent='Starting server verification…';
  try{
@@ -1856,7 +1890,7 @@ async function runServerRecheck(){
  }catch{$("serverRecheckStatus").textContent='Could not start server verification.'}
  finally{setTimeout(()=>btn.disabled=false,2500)}
 }
-$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=load;$("runServerRecheck").onclick=runServerRecheck;load();
+$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=manualRefresh;$("runServerRecheck").onclick=runServerRecheck;load();
 </script></body></html>`;
 }
 

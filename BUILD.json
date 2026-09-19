@@ -1,8 +1,15 @@
 {
-  "version": "v5.8",
+  "version": "v5.9",
   "build_date": "2026-09-19",
-  "label": "v5.8 \u2022 September 19, 2026",
+  "label": "v5.9 • September 19, 2026",
   "changes": [
+    "Admin Refresh button now gives immediate feedback: Refreshing…, Updated ✓, and a visible last-updated time",
+    "Manual analytics refresh bypasses browser cache and preserves the selected client-version filter",
+    "Server-verification telemetry is excluded from Active installs, Sessions, activation funnel, Behavior, Reliability, Book quality, and Recent sessions",
+    "Server verification remains fully visible inside Fix verification and no longer inflates user-product analytics",
+    "While a new verification run is active, the prior result is explicitly labeled Previous completed verification",
+    "When the current run finishes, the API latest summary is promoted immediately even before the finished telemetry event is re-read",
+    "No client lookup logic, scanning, user library data, or backup behavior changes in this release",
     "Adds live server-verification progress to /admin: queued, checking now, completed, and remaining",
     "Shows each verification ISBN with queued/checking/completed state, prior state, result, and elapsed time",
     "Admin dashboard polls every 1.5 seconds while verification is running so progress updates without manual refresh",
