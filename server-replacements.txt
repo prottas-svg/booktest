@@ -1,0 +1,90 @@
+SERVER.JS REPLACEMENTS
+
+1) ADD THIS SECTION BETWEEN Reliability AND Book / lookup quality:
+
+<div class="section"><h2>Fix verification</h2><div class="card" id="fixVerification"></div></div>
+
+
+2) IN THE Reliability TABLE, REPLACE:
+
+'<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout").length+'</td></tr>'+
+
+WITH:
+
+'<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout"||e.properties?.errorCode==="LOOKUP_TIMEOUT").length+'</td></tr>'+
+
+
+3) IMMEDIATELY BEFORE:
+
+ const scansByISBN=new Map();
+
+INSERT:
+
+ const releaseQueued=ev.filter(e=>e.eventName==="unresolved_books_recheck_queued");
+ const releaseCompleted=ev.filter(e=>e.eventName==="historical_book_recheck_completed");
+ const releaseMap=new Map();
+
+ for(const e of releaseQueued){
+   const release=e.properties?.release||e.appVersion||"unknown";
+   if(!releaseMap.has(release))releaseMap.set(release,{
+     release,eligible:0,retested:0,fixed:0,confirmed:0,resolvedNoAr:0,stillFailing:0
+   });
+   releaseMap.get(release).eligible+=Number(e.properties?.count)||0;
+ }
+
+ for(const e of releaseCompleted){
+   const release=e.properties?.release||e.properties?.toVersion||e.appVersion||"unknown";
+   if(!releaseMap.has(release))releaseMap.set(release,{
+     release,eligible:0,retested:0,fixed:0,confirmed:0,resolvedNoAr:0,stillFailing:0
+   });
+   const r=releaseMap.get(release);
+   r.retested++;
+   const outcome=e.properties?.outcome;
+   if(outcome==="fixed_to_ar")r.fixed++;
+   else if(outcome==="confirmed_no_ar")r.confirmed++;
+   else if(outcome==="resolved_to_no_ar")r.resolvedNoAr++;
+   else if(outcome==="still_error"||outcome==="still_unknown")r.stillFailing++;
+ }
+
+ const releaseRows=[...releaseMap.values()]
+   .sort((a,b)=>String(b.release).localeCompare(String(a.release)));
+
+ const fixSummary=releaseRows.length
+   ? '<table><tr><th>Release</th><th>Eligible</th><th>Retested</th><th>Fixed → AR</th><th>Confirmed no AR</th><th>Error → no AR</th><th>Still failing</th><th>Waiting</th></tr>'+
+     releaseRows.map(r=>
+       '<tr><td>'+esc(r.release)+'</td><td>'+r.eligible+'</td><td>'+r.retested+'</td><td class="good">'+r.fixed+
+       '</td><td>'+r.confirmed+'</td><td>'+r.resolvedNoAr+'</td><td class="'+(r.stillFailing?'bad':'')+'">'+
+       r.stillFailing+'</td><td>'+Math.max(0,r.eligible-r.retested)+'</td></tr>'
+     ).join('')+'</table>'
+   : '<span class="muted">No release rechecks recorded yet.</span>';
+
+ const recentFixes=releaseCompleted.slice()
+   .sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)))
+   .slice(0,20);
+
+ const fixDetails=recentFixes.length
+   ? '<div style="height:14px"></div><b>Recent historical rechecks</b>'+
+     '<table><tr><th>ISBN</th><th>Old</th><th>New</th><th>Version</th><th>Outcome</th></tr>'+
+     recentFixes.map(e=>
+       '<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td>'+
+       '<td>'+esc(e.properties?.oldStatus||"—")+'</td>'+
+       '<td>'+esc(e.properties?.newStatus||"—")+'</td>'+
+       '<td>'+esc((e.properties?.fromVersion||"earlier")+' → '+(e.properties?.toVersion||e.appVersion||""))+'</td>'+
+       '<td>'+esc(e.properties?.outcome||"")+'</td></tr>'
+     ).join('')+'</table>'
+   : '';
+
+ $("fixVerification").innerHTML=fixSummary+fixDetails;
+
+
+4) VERSION STRINGS
+
+Replace both:
+version:"5.3.0"
+with:
+version:"5.4.0"
+
+And replace:
+My AR Shelf v5.3.0 listening on
+with:
+My AR Shelf v5.4.0 listening on

@@ -1,0 +1,219 @@
+PUBLIC/INDEX.HTML REPLACEMENTS
+
+1) APP VERSION
+
+FIND:
+const APP_VERSION='5.3';
+
+REPLACE WITH:
+const APP_VERSION='5.4';
+
+
+2) RELEASE RECHECK VERSION
+
+FIND:
+const UNRESOLVED_RECHECK_VERSION='5.3';
+
+REPLACE WITH:
+const UNRESOLVED_RECHECK_VERSION='5.4';
+
+
+3) BUILD LABEL
+
+Change visible v5.3 to v5.4 and the build date to September 19, 2026.
+
+
+4) DATA BACKUP TRANSIENT FIELDS
+
+FIND:
+      delete b.diagnostics;
+      delete b.forceRefresh;
+      if(b.lookupStatus==='pending') b.lookupStatus='queued';
+
+REPLACE WITH:
+      delete b.diagnostics;
+      delete b.forceRefresh;
+      delete b.recheckFromStatus;
+      delete b.recheckFromVersion;
+      delete b.recheckRelease;
+      delete b.retryFromStatus;
+      delete b.lookupTrigger;
+      if(b.lookupStatus==='pending') b.lookupStatus='queued';
+
+
+5) REPLACE THE ENTIRE queueUnresolvedBooksForReleaseRecheck FUNCTION WITH:
+
+function queueUnresolvedBooksForReleaseRecheck(){
+  try{
+    if(localStorage.getItem(UNRESOLVED_RECHECK_KEY)===UNRESOLVED_RECHECK_VERSION)return 0;
+    let queued=0;
+    for(const book of Object.values(data.books||{})){
+      // Never touch a book that already has confirmed AR data.
+      if(book.lookupStatus!=='no_ar' && book.lookupStatus!=='error')continue;
+      book.recheckFromStatus=book.lookupStatus;
+      book.recheckFromVersion=book.lastLookupVersion||null;
+      book.recheckRelease=UNRESOLVED_RECHECK_VERSION;
+      book.lookupStatus='queued';
+      book.error=null;
+      book.forceRefresh=true;
+      queued++;
+    }
+    // Mark this release as processed even if there was nothing to retry.
+    localStorage.setItem(UNRESOLVED_RECHECK_KEY,UNRESOLVED_RECHECK_VERSION);
+    if(queued){
+      localStorage.setItem(KEY,JSON.stringify(data));
+      trackEvent('unresolved_books_recheck_queued',{
+        count:queued,
+        release:UNRESOLVED_RECHECK_VERSION,
+        toVersion:APP_VERSION
+      });
+    }
+    return queued;
+  }catch{
+    return 0;
+  }
+}
+
+
+6) AT THE START OF lookupBook, REPLACE:
+
+async function lookupBook(book,refresh=false){
+  const statusBeforeLookup=book.lookupStatus;
+  activeLookups++;
+  const telemetryLookupStarted=performance.now();
+  trackEvent('lookup_started',{isbn:book.isbn,refresh:Boolean(refresh||book.forceRefresh)});
+  book.lookupStatus='pending';
+
+WITH:
+
+async function lookupBook(book,refresh=false){
+  const recheckRelease=book.recheckRelease||null;
+  const statusBeforeLookup=book.recheckFromStatus||book.retryFromStatus||book.lookupStatus;
+  const versionBeforeLookup=book.recheckFromVersion||book.lastLookupVersion||null;
+  const lookupTrigger=recheckRelease?'version_recheck':(book.lookupTrigger||(refresh?'manual_retry':'normal'));
+  activeLookups++;
+  const telemetryLookupStarted=performance.now();
+  trackEvent('lookup_started',{
+    isbn:book.isbn,
+    refresh:Boolean(refresh||book.forceRefresh),
+    trigger:lookupTrigger,
+    priorStatus:statusBeforeLookup,
+    priorVersion:versionBeforeLookup,
+    recheckRelease
+  });
+  book.lookupStatus='pending';
+
+
+7) IN THE SUCCESSFUL LOOKUP BRANCH, REPLACE THE lookup_success trackEvent LINE WITH:
+
+      book.lastLookupVersion=APP_VERSION;
+      trackEvent('lookup_success',{
+        isbn:book.isbn,
+        durationMs:Math.round(performance.now()-telemetryLookupStarted),
+        upgradedFromUnresolved:(statusBeforeLookup==='no_ar'||statusBeforeLookup==='error'),
+        trigger:lookupTrigger,
+        priorStatus:statusBeforeLookup,
+        priorVersion:versionBeforeLookup,
+        recheckRelease,
+        matchBasis:j.matchBasis||'isbn',
+        matchedISBN:j.matchedISBN||null,
+        atos:j.atos,
+        points:j.points
+      });
+      if(recheckRelease){
+        trackEvent('historical_book_recheck_completed',{
+          isbn:book.isbn,
+          fromVersion:versionBeforeLookup,
+          toVersion:APP_VERSION,
+          release:recheckRelease,
+          oldStatus:statusBeforeLookup,
+          newStatus:'found',
+          outcome:'fixed_to_ar',
+          quizNumber:j.quizNumber||null
+        });
+      }
+
+
+8) IN THE NO-AR BRANCH, REPLACE THE lookup_no_ar trackEvent LINE WITH:
+
+      book.lastLookupVersion=APP_VERSION;
+      trackEvent('lookup_no_ar',{
+        isbn:book.isbn,
+        durationMs:Math.round(performance.now()-telemetryLookupStarted),
+        trigger:lookupTrigger,
+        priorStatus:statusBeforeLookup,
+        priorVersion:versionBeforeLookup,
+        recheckRelease
+      });
+      if(recheckRelease){
+        trackEvent('historical_book_recheck_completed',{
+          isbn:book.isbn,
+          fromVersion:versionBeforeLookup,
+          toVersion:APP_VERSION,
+          release:recheckRelease,
+          oldStatus:statusBeforeLookup,
+          newStatus:'no_ar',
+          outcome:statusBeforeLookup==='error'?'resolved_to_no_ar':'confirmed_no_ar'
+        });
+      }
+
+
+9) IN THE ERROR CATCH BLOCK, REPLACE THE trackEvent(...) BLOCK WITH:
+
+    book.lastLookupVersion=APP_VERSION;
+    trackEvent(e?.name==='AbortError'?'lookup_timeout':'lookup_error',{
+      isbn:book.isbn,
+      durationMs:Math.round(performance.now()-telemetryLookupStarted),
+      trigger:lookupTrigger,
+      priorStatus:statusBeforeLookup,
+      priorVersion:versionBeforeLookup,
+      recheckRelease,
+      errorType:e?.name||'Error',
+      errorCode:e?.detail||null
+    });
+    if(recheckRelease){
+      trackEvent('historical_book_recheck_completed',{
+        isbn:book.isbn,
+        fromVersion:versionBeforeLookup,
+        toVersion:APP_VERSION,
+        release:recheckRelease,
+        oldStatus:statusBeforeLookup,
+        newStatus:'error',
+        outcome:'still_error',
+        errorType:e?.name||'Error',
+        errorCode:e?.detail||null
+      });
+    }
+
+
+10) IN THE finally BLOCK, REPLACE:
+
+    delete book.forceRefresh;
+    activeLookups--;
+
+WITH:
+
+    delete book.forceRefresh;
+    delete book.recheckFromStatus;
+    delete book.recheckFromVersion;
+    delete book.recheckRelease;
+    delete book.retryFromStatus;
+    delete book.lookupTrigger;
+    activeLookups--;
+
+
+11) REPLACE THE ONE-LINE retry FUNCTION WITH:
+
+function retry(isbn){
+  const b=data.books[isbn];
+  if(!b)return;
+  const priorStatus=b.lookupStatus;
+  trackEvent('lookup_retry',{isbn,priorStatus});
+  b.retryFromStatus=priorStatus;
+  b.lookupTrigger='manual_retry';
+  b.lookupStatus='queued';
+  b.error=null;
+  persist();
+  renderAll();
+  pumpQueue();
+}

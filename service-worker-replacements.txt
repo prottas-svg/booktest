@@ -1,0 +1,7 @@
+PUBLIC/SERVICE-WORKER.JS
+
+FIND:
+const CACHE='my-ar-shelf-shell-v5.3';
+
+REPLACE WITH:
+const CACHE='my-ar-shelf-shell-v5.4';
