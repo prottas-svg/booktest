@@ -606,7 +606,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v5.1</span><span style="opacity:.55">•</span><span>September 18, 2026</span></div>
+<div class="build"><span>v5.3</span><span style="opacity:.55">•</span><span>September 19, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -862,7 +862,7 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-const APP_VERSION='5.1';
+const APP_VERSION='5.3';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
 
@@ -1156,6 +1156,34 @@ async function repairMissingBookNames(){
   }
 }
 
+
+const UNRESOLVED_RECHECK_VERSION='5.3';
+const UNRESOLVED_RECHECK_KEY='scan_ar_unresolved_recheck_version_v1';
+
+function queueUnresolvedBooksForReleaseRecheck(){
+  try{
+    if(localStorage.getItem(UNRESOLVED_RECHECK_KEY)===UNRESOLVED_RECHECK_VERSION)return 0;
+    let queued=0;
+    for(const book of Object.values(data.books||{})){
+      // Never touch a book that already has confirmed AR data.
+      if(book.lookupStatus!=='no_ar' && book.lookupStatus!=='error')continue;
+      book.lookupStatus='queued';
+      book.error=null;
+      book.forceRefresh=true;
+      queued++;
+    }
+    // Mark this release as processed even if there was nothing to retry.
+    localStorage.setItem(UNRESOLVED_RECHECK_KEY,UNRESOLVED_RECHECK_VERSION);
+    if(queued){
+      localStorage.setItem(KEY,JSON.stringify(data));
+      trackEvent('unresolved_books_recheck_queued',{count:queued,release:UNRESOLVED_RECHECK_VERSION});
+    }
+    return queued;
+  }catch{
+    return 0;
+  }
+}
+
 function pumpQueue(){
   while(activeLookups<MAX_LOOKUPS){
     const b=Object.values(data.books).find(x=>x.lookupStatus==='queued');
@@ -1164,6 +1192,7 @@ function pumpQueue(){
   }
 }
 async function lookupBook(book,refresh=false){
+  const statusBeforeLookup=book.lookupStatus;
   activeLookups++;
   const telemetryLookupStarted=performance.now();
   trackEvent('lookup_started',{isbn:book.isbn,refresh:Boolean(refresh||book.forceRefresh)});
@@ -1201,7 +1230,7 @@ async function lookupBook(book,refresh=false){
         diagnostics:j.diagnostics||null,
         error:null
       });
-      trackEvent('lookup_success',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted),matchBasis:j.matchBasis||'isbn',matchedISBN:j.matchedISBN||null,atos:j.atos,points:j.points});
+      trackEvent('lookup_success',{isbn:book.isbn,durationMs:Math.round(performance.now()-telemetryLookupStarted),upgradedFromUnresolved:(statusBeforeLookup==='no_ar'||statusBeforeLookup==='error'),matchBasis:j.matchBasis||'isbn',matchedISBN:j.matchedISBN||null,atos:j.atos,points:j.points});
       setOutcome('good',bookTitle(book),book.author,`AR ${book.atos??'—'} · ${book.points??'—'} points${j.matchBasis==='title_author'?' · title/author match':(j.matchBasis==='related_edition_isbn'?' · related edition match':(j.matchBasis==='isbn_search_unique'?' · ISBN search match':(j.matchBasis==='quick_isbn_unique'?' · ISBN search match':(j.matchBasis==='equivalent_isbn'?' · ISBN equivalent match':''))))}`);
     }else if(r.status===404 && j.reason==='no_ar_record'){
       Object.assign(book,{
@@ -1673,7 +1702,6 @@ async function copyRecoveryCode(){
   try{
     await navigator.clipboard.writeText(code);
     trackEvent('recovery_code_copy');
-    trackEvent('recovery_code_copy');
     showToast('Recovery code copied');
   }catch{
     const ta=document.createElement('textarea');
@@ -1685,6 +1713,7 @@ async function copyRecoveryCode(){
     ta.select();
     document.execCommand('copy');
     ta.remove();
+    trackEvent('recovery_code_copy');
     showToast('Recovery code copied');
   }
 }
@@ -1736,6 +1765,7 @@ $('eraseBtn').onclick=()=>{
   showToast('Local library erased');
 };
 
+queueUnresolvedBooksForReleaseRecheck();
 renderAll();pumpQueue();
 trackEvent('app_open',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
 trackEvent('page_view',{page:currentPage});

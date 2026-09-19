@@ -1079,7 +1079,50 @@ async function performLookup(isbn,{refresh=false}={}) {
         console.warn("[quick ISBN fallback]",quickErr?.message||quickErr);
       }
 
-      // Next try alternate ISBNs for the same book/work reported by Open Library.
+      // v5.2: Try the strict title+author match BEFORE enumerating sibling editions.
+      // The beta data exposed two false-negative families:
+      // (1) newer reprints whose AR quiz is indexed under an older edition, and
+      // (2) exact ISBNs that Bookfinder intermittently reports as no-result.
+      // A unique title+author match resolves both quickly and conservatively; sibling
+      // ISBN enumeration remains as the fallback for books such as Cora where it is needed.
+      if(bib?.title && bib?.author){
+        try{
+          await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
+          const fallback=await searchBookfinderByTitleAuthor(page,bib.title,bib.author);
+          isbnDiagnostics.titleAuthorAttempt={
+            title:bib.title,
+            author:bib.author,
+            found:Boolean(fallback)
+          };
+          if(fallback){
+            const ar=parseAR(fallback.text,isbn,fallback.pageUrl);
+            const value={
+              ...ar,
+              title:bib.title,
+              author:bib.author,
+              cover:bib.cover||null,
+              pages:bib.pages||null,
+              metadataSource:bib.metadataSource||"Open Library",
+              arSource:"AR Bookfinder",
+              matchBasis:"title_author",
+              lookedUpAt:new Date().toISOString()
+            };
+            cache.set(isbn,{time:Date.now(),value});
+            return value;
+          }
+        }catch(fallbackErr){
+          isbnDiagnostics.titleAuthorAttempt={
+            title:bib.title,
+            author:bib.author,
+            found:false,
+            error:String(fallbackErr?.message||fallbackErr).slice(0,220)
+          };
+          console.warn("[title-author fallback]",fallbackErr?.message||fallbackErr);
+        }
+      }
+
+      // If the unique title+author path does not work, try alternate ISBNs for the
+      // same Open Library work. Preserve the proven Cora behavior.
       try{
         const siblings=await lookupSiblingISBNs(isbn);
         isbnDiagnostics.siblingCandidates=siblings.slice(0,12);
@@ -1092,7 +1135,7 @@ async function performLookup(isbn,{refresh=false}={}) {
           if(siblingResult?.found){
             const siblingAR=siblingResult.ar;
             const siblingBib=bib||await lookupBibliographic(sibling).catch(()=>null);
-            return {
+            const value={
               ...siblingAR,
               isbn,
               scannedISBN:isbn,
@@ -1106,34 +1149,12 @@ async function performLookup(isbn,{refresh=false}={}) {
               matchedISBN:sibling,
               lookedUpAt:new Date().toISOString()
             };
+            cache.set(isbn,{time:Date.now(),value});
+            return value;
           }
         }
       }catch(editionErr){
         console.warn("[related-edition fallback]",editionErr?.message||editionErr);
-      }
-
-      // If no sibling ISBN works, fall back to a strict title+author search.
-      if(bib?.title && bib?.author){
-        try{
-          await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
-          const fallback=await searchBookfinderByTitleAuthor(page,bib.title,bib.author);
-          if(fallback){
-            const ar=parseAR(fallback.text,isbn,fallback.pageUrl);
-            return {
-              ...ar,
-              title:bib.title,
-              author:bib.author,
-              cover:bib.cover||null,
-              pages:bib.pages||null,
-              metadataSource:bib.metadataSource||"Open Library",
-              arSource:"AR Bookfinder",
-              matchBasis:"title_author",
-              lookedUpAt:new Date().toISOString()
-            };
-          }
-        }catch(fallbackErr){
-          console.warn("[title-author fallback]",fallbackErr?.message||fallbackErr);
-        }
       }
 
       const e=new Error("No AR result was found by ISBN, related editions, or a unique title/author match.");
@@ -1338,9 +1359,14 @@ function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&l
 function render(){
  const ev=filtered();
  const installs=uniq(ev.map(e=>e.installId)), sessions=uniq(ev.map(e=>e.sessionId));
- const scans=ev.filter(e=>e.eventName==="book_captured").length;
+ const captureEvents=ev.filter(e=>e.eventName==="book_captured");
+ const scans=captureEvents.length;
+ const uniqueBooks=uniq(captureEvents.map(e=>e.properties?.isbn).filter(Boolean));
  const lookups=ev.filter(e=>["lookup_success","lookup_no_ar","lookup_error","lookup_timeout"].includes(e.eventName));
+ const terminalTechnical=lookups.filter(e=>["lookup_success","lookup_no_ar"].includes(e.eventName));
  const ok=lookups.filter(e=>e.eventName==="lookup_success").length;
+ const technicalSuccess=pct(terminalTechnical.length,lookups.length);
+ const arCoverage=pct(ok,terminalTechnical.length);
  const backup=ev.filter(e=>["backup_success","backup_failed"].includes(e.eventName));
  const backupOK=backup.filter(e=>e.eventName==="backup_success").length;
  const activeDaysByInstall=new Map();
@@ -1350,11 +1376,11 @@ function render(){
  ["Active installs",installs],
  ["Sessions",sessions],
  ["Books captured",scans],
- ["Returning installs",returning],
- ["Lookup success",pct(ok,lookups.length)+"%"],
+ ["Unique books",uniqueBooks],
+ ["Technical lookup success",technicalSuccess+"%"],
+ ["AR coverage",arCoverage+"%"],
  ["Backup success",pct(backupOK,backup.length)+"%"],
- ["Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length],
- ["Restores",ev.filter(e=>e.eventName==="restore_success").length]
+ ["Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length]
  ].map(([l,v])=>'<div class="card metric"><b>'+v+'</b><span>'+l+'</span></div>').join('');
 
  const byInstall=new Map();
@@ -1373,18 +1399,22 @@ function render(){
  $("funnel").innerHTML='<table><tr><th>Milestone</th><th>Installs</th><th>% of active installs</th></tr>'+
  stages.map(([name,fn])=>{const n=[...byInstall.values()].filter(fn).length;return '<tr><td>'+name+'</td><td>'+n+'</td><td>'+pct(n,total)+'%</td></tr>'}).join('')+'</table>';
 
- const behaviorEvents=ev.filter(e=>!["app_open","lookup_started","lookup_success","lookup_no_ar","lookup_error","lookup_timeout"].includes(e.eventName));
+ const behaviorEvents=ev.filter(e=>!["app_open","lookup_started","lookup_success","lookup_no_ar","lookup_error","lookup_timeout","backup_started","backup_success"].includes(e.eventName));
  $("behavior").innerHTML='<b>Top actions</b>'+bars(countBy(behaviorEvents,e=>e.eventName))+
  '<div style="height:12px"></div><b>Pages viewed</b>'+bars(countBy(ev.filter(e=>e.eventName==="page_view"),e=>e.properties?.page));
 
  const durations=lookups.map(e=>Number(e.properties?.durationMs)).filter(Number.isFinite);
  const match=ev.filter(e=>e.eventName==="lookup_success");
  const errs=ev.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName));
+ const retriedKeys=new Set(ev.filter(e=>e.eventName==="lookup_retry"&&e.properties?.isbn).map(e=>e.installId+"|"+e.properties.isbn));
+ const recoveredKeys=new Set(ev.filter(e=>e.eventName==="lookup_success"&&e.properties?.isbn).map(e=>e.installId+"|"+e.properties.isbn));
+ const retryRecovered=[...retriedKeys].filter(k=>recoveredKeys.has(k)).length;
  $("reliability").innerHTML=
  '<table><tr><th>Metric</th><th>Value</th></tr>'+
  '<tr><td>Lookup p50</td><td>'+(quantile(durations,.5)?.toFixed(0)||"—")+' ms</td></tr>'+
  '<tr><td>Lookup p90</td><td>'+(quantile(durations,.9)?.toFixed(0)||"—")+' ms</td></tr>'+
  '<tr><td>Lookup p95</td><td>'+(quantile(durations,.95)?.toFixed(0)||"—")+' ms</td></tr>'+
+ '<tr><td>Retries that later succeeded</td><td>'+retryRecovered+' / '+retriedKeys.size+'</td></tr>'+
  '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout").length+'</td></tr>'+
  '<tr><td>Backup failures</td><td>'+ev.filter(e=>e.eventName==="backup_failed").length+'</td></tr>'+
  '<tr><td>Restore failures</td><td>'+ev.filter(e=>e.eventName==="restore_failed").length+'</td></tr></table>'+
@@ -1434,10 +1464,10 @@ $("window").onchange=render;$("version").onchange=render;$("refresh").onclick=lo
 
 app.get("/admin",requireAdmin,(_req,res)=>res.type("html").send(analyticsAdminHtml()));
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.1.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.3.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"5.1.0",
+  version:"5.3.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1514,7 +1544,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.1.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.3.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
