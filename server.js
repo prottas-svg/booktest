@@ -1328,6 +1328,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <div class="section"><h2>Behavior</h2><div class="card"><div id="behavior"></div></div></div>
 <div class="section"><h2>Reliability</h2><div class="card"><div id="reliability"></div></div></div>
 </div>
+<div class="section"><h2>Fix verification</h2><div class="card" id="fixVerification"></div></div>
 <div class="section"><h2>Book / lookup quality</h2><div class="card" id="books"></div></div>
 <div class="section"><h2>Recent sessions</h2><div class="card" id="sessions"></div></div>
 <div class="section"><h2>Selected installation timeline</h2><div class="card timeline" id="timeline"><span class="muted">Click an installation in Recent sessions.</span></div></div>
@@ -1415,11 +1416,41 @@ function render(){
  '<tr><td>Lookup p90</td><td>'+(quantile(durations,.9)?.toFixed(0)||"—")+' ms</td></tr>'+
  '<tr><td>Lookup p95</td><td>'+(quantile(durations,.95)?.toFixed(0)||"—")+' ms</td></tr>'+
  '<tr><td>Retries that later succeeded</td><td>'+retryRecovered+' / '+retriedKeys.size+'</td></tr>'+
- '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout").length+'</td></tr>'+
+ '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout"||e.properties?.errorCode==="LOOKUP_TIMEOUT").length+'</td></tr>'+
  '<tr><td>Backup failures</td><td>'+ev.filter(e=>e.eventName==="backup_failed").length+'</td></tr>'+
  '<tr><td>Restore failures</td><td>'+ev.filter(e=>e.eventName==="restore_failed").length+'</td></tr></table>'+
  '<div style="height:12px"></div><b>Successful match paths</b>'+bars(countBy(match,e=>e.properties?.matchBasis||"isbn"))+
  '<div style="height:12px"></div><b>Error types</b>'+bars(countBy(errs,e=>e.properties?.errorCode||e.properties?.errorType||"error"));
+
+ const releaseQueued=ev.filter(e=>e.eventName==="unresolved_books_recheck_queued");
+ const releaseCompleted=ev.filter(e=>e.eventName==="historical_book_recheck_completed");
+ const releaseMap=new Map();
+ for(const e of releaseQueued){
+   const release=e.properties?.release||e.appVersion||"unknown";
+   if(!releaseMap.has(release))releaseMap.set(release,{release,eligible:0,retested:0,fixed:0,confirmed:0,resolvedNoAr:0,stillFailing:0});
+   releaseMap.get(release).eligible+=Number(e.properties?.count)||0;
+ }
+ for(const e of releaseCompleted){
+   const release=e.properties?.release||e.properties?.toVersion||e.appVersion||"unknown";
+   if(!releaseMap.has(release))releaseMap.set(release,{release,eligible:0,retested:0,fixed:0,confirmed:0,resolvedNoAr:0,stillFailing:0});
+   const r=releaseMap.get(release);r.retested++;
+   const outcome=e.properties?.outcome;
+   if(outcome==="fixed_to_ar")r.fixed++;
+   else if(outcome==="confirmed_no_ar")r.confirmed++;
+   else if(outcome==="resolved_to_no_ar")r.resolvedNoAr++;
+   else if(outcome==="still_error"||outcome==="still_unknown")r.stillFailing++;
+ }
+ const releaseRows=[...releaseMap.values()].sort((a,b)=>String(b.release).localeCompare(String(a.release)));
+ const fixSummary=releaseRows.length
+   ? '<table><tr><th>Release</th><th>Eligible</th><th>Retested</th><th>Fixed → AR</th><th>Confirmed no AR</th><th>Error → no AR</th><th>Still failing</th><th>Waiting</th></tr>'+ 
+     releaseRows.map(r=>'<tr><td>'+esc(r.release)+'</td><td>'+r.eligible+'</td><td>'+r.retested+'</td><td class="good">'+r.fixed+'</td><td>'+r.confirmed+'</td><td>'+r.resolvedNoAr+'</td><td class="'+(r.stillFailing?'bad':'')+'">'+r.stillFailing+'</td><td>'+Math.max(0,r.eligible-r.retested)+'</td></tr>').join('')+'</table>'
+   : '<span class="muted">No release rechecks recorded yet.</span>';
+ const recentFixes=releaseCompleted.slice().sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp))).slice(0,20);
+ const fixDetails=recentFixes.length
+   ? '<div style="height:14px"></div><b>Recent historical rechecks</b><table><tr><th>ISBN</th><th>Old</th><th>New</th><th>Version</th><th>Outcome</th></tr>'+ 
+     recentFixes.map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.oldStatus||"—")+'</td><td>'+esc(e.properties?.newStatus||"—")+'</td><td>'+esc((e.properties?.fromVersion||"earlier")+' → '+(e.properties?.toVersion||e.appVersion||""))+'</td><td>'+esc(e.properties?.outcome||"")+'</td></tr>').join('')+'</table>'
+   : '';
+ $("fixVerification").innerHTML=fixSummary+fixDetails;
 
  const scansByISBN=new Map();
  for(const e of ev.filter(e=>e.properties?.isbn)){
@@ -1464,10 +1495,10 @@ $("window").onchange=render;$("version").onchange=render;$("refresh").onclick=lo
 
 app.get("/admin",requireAdmin,(_req,res)=>res.type("html").send(analyticsAdminHtml()));
 
-app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.3.0",time:new Date().toISOString()}));
+app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"scan-ar",version:"5.4.0",time:new Date().toISOString()}));
 app.get("/api/lookup-status",(_req,res)=>res.json({
   ok:true,
-  version:"5.3.0",
+  version:"5.4.0",
   bookfinderUrl:BOOKFINDER_URL,
   browserInitialized:Boolean(browserPromise),
   cacheEntries:cache.size
@@ -1544,7 +1575,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.3.0 listening on ${port}`));
+const server=app.listen(port,"0.0.0.0",()=>console.log(`My AR Shelf v5.4.0 listening on ${port}`));
 async function shutdown(){
   console.log("Shutting down…");server.close();
   if(browserPromise){try{(await browserPromise).close()}catch{}}
