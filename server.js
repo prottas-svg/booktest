@@ -23,7 +23,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "5.9.0";
+const SERVER_VERSION = "6.1.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -170,6 +170,20 @@ async function backfillRegressionCases(){
   await regressionWriteChain;
 }
 
+function sanitizeServerTelemetryProperties(input){
+  const out=sanitizeTelemetryProperties(input);
+  if(!input || typeof input!=="object") return out;
+  const longTextKeys=new Set([
+    "metadataTitle","metadataAuthor","rejectionReason","queryTrace",
+    "siblingCandidates","exactSearchSummary","equivalentSearchSummary",
+    "quickSearchSummary","titleAuthorSummary","siblingSearchSummary"
+  ]);
+  for(const key of longTextKeys){
+    if(input[key]!=null) out[key]=safeTelemetryString(input[key],key==="queryTrace"?9000:2400);
+  }
+  return out;
+}
+
 function serverTelemetryEvent(eventName,properties={},sessionId="server"){
   const timestamp=new Date().toISOString();
   return {
@@ -182,7 +196,103 @@ function serverTelemetryEvent(eventName,properties={},sessionId="server"){
     page:"server",
     platform:"server",
     displayMode:"server",
-    properties:sanitizeTelemetryProperties(properties)
+    properties:sanitizeServerTelemetryProperties(properties)
+  };
+}
+
+function summarizeVerificationAttempt(label,d={}){
+  if(!d || typeof d!=="object") return null;
+  const submit=d?.submitMeta?.method||d?.submitMeta?.submitMethod||null;
+  const inferred=d?.inferredIdentity||{};
+  return {
+    label,
+    isbn:d.isbn||d.searchedISBN||null,
+    resultCount:d.resultCount??null,
+    hasAR:d.hasAR??d.containsQuiz??false,
+    resultLinks:d.resultLinks??null,
+    uniqueDetailLinks:d.uniqueDetailLinks??null,
+    submitMethod:submit,
+    acceptedBy:d.acceptedBy||null,
+    reason:d.reason||null,
+    error:d.error||null,
+    identityTitle:inferred?.title||null,
+    identityAuthor:inferred?.author||null
+  };
+}
+
+function buildVerificationDiagnosticProperties(isbn,error,result=null){
+  const d=error?.diagnostics||{};
+  const bib=error?.bib||null;
+  const attempts=[];
+
+  const exact=summarizeVerificationAttempt("exact_isbn",d);
+  if(exact) attempts.push(exact);
+
+  if(d.equivalentISBNAttempt){
+    const a=summarizeVerificationAttempt("equivalent_isbn",d.equivalentISBNAttempt);
+    if(a) attempts.push(a);
+  }else if(d.equivalentISBNError){
+    attempts.push({label:"equivalent_isbn",error:d.equivalentISBNError});
+  }
+
+  if(d.quickSearch){
+    const a=summarizeVerificationAttempt("quick_isbn",d.quickSearch);
+    if(a) attempts.push(a);
+  }else if(d.quickSearchError){
+    attempts.push({label:"quick_isbn",error:d.quickSearchError});
+  }
+
+  if(d.titleAuthorAttempt){
+    attempts.push({
+      label:"title_author",
+      title:d.titleAuthorAttempt.title||bib?.title||null,
+      author:d.titleAuthorAttempt.author||bib?.author||null,
+      found:Boolean(d.titleAuthorAttempt.found),
+      error:d.titleAuthorAttempt.error||null
+    });
+  }
+
+  const siblings=Array.isArray(d.siblingAttempts)?d.siblingAttempts:[];
+  for(const a0 of siblings){
+    const a=summarizeVerificationAttempt("related_edition_isbn",a0);
+    if(a) attempts.push(a);
+  }
+
+  const concise=a=>{
+    const bits=[a.label];
+    if(a.isbn) bits.push(a.isbn);
+    if(a.title) bits.push(`title="${a.title}"`);
+    if(a.author) bits.push(`author="${a.author}"`);
+    if(a.resultCount!=null) bits.push(`results=${a.resultCount}`);
+    if(a.hasAR!=null) bits.push(`AR=${a.hasAR?"yes":"no"}`);
+    if(a.acceptedBy) bits.push(`accepted=${a.acceptedBy}`);
+    if(a.found!=null) bits.push(`found=${a.found?"yes":"no"}`);
+    if(a.reason) bits.push(`reason=${a.reason}`);
+    if(a.error) bits.push(`error=${String(a.error).slice(0,180)}`);
+    return bits.join(" · ");
+  };
+
+  const siblingCandidates=Array.isArray(d.siblingCandidates)?d.siblingCandidates:[];
+  return {
+    isbn,
+    metadataTitle:bib?.title||d?.inferredIdentity?.title||null,
+    metadataAuthor:bib?.author||d?.inferredIdentity?.author||null,
+    metadataSource:bib?.metadataSource||null,
+    finalStatus:result?"found":(error?.code==="NOT_FOUND"?"no_ar":"error"),
+    errorCode:error?.code||error?.name||null,
+    rejectionReason:error?.message||null,
+    exactSearchSummary:attempts.filter(a=>a.label==="exact_isbn").map(concise).join(" | "),
+    equivalentSearchSummary:attempts.filter(a=>a.label==="equivalent_isbn").map(concise).join(" | "),
+    quickSearchSummary:attempts.filter(a=>a.label==="quick_isbn").map(concise).join(" | "),
+    titleAuthorSummary:attempts.filter(a=>a.label==="title_author").map(concise).join(" | "),
+    siblingCandidates:siblingCandidates.join(", "),
+    siblingSearchSummary:attempts.filter(a=>a.label==="related_edition_isbn").map(concise).join(" | "),
+    siblingLookupError:d.siblingLookupError||null,
+    queryTrace:JSON.stringify(attempts),
+    matchedISBN:result?.matchedISBN||null,
+    matchBasis:result?.matchBasis||null,
+    quizNumber:result?.quizNumber||null,
+    atos:result?.atos??null
   };
 }
 
@@ -296,18 +406,30 @@ async function runServerVerification({reason="manual",force=false}={}){
           serverVerificationProgress.checking++;
         }
         const t0=Date.now();
-        let resultStatus="error", outcome="still_error", result=null, errorCode=null;
+        let resultStatus="error", outcome="still_error", result=null, errorCode=null, lookupError=null;
         try{
           result=await withLookupDeadline(performLookup(item.isbn,{refresh:true}));
           resultStatus="found";
           outcome="fixed_to_ar";
         }catch(e){
+          lookupError=e;
           errorCode=e?.code||e?.name||"ERROR";
           if(e?.code==="NOT_FOUND"){
             resultStatus="no_ar";
             const priorStatuses=item.historical?[...item.historical.statuses]:[];
             outcome=priorStatuses.includes("error") && !priorStatuses.includes("no_ar") ? "resolved_to_no_ar" : "confirmed_no_ar";
           }
+        }
+
+        if(item.historical){
+          const diagnosticProps=buildVerificationDiagnosticProperties(item.isbn,lookupError,result);
+          diagnosticProps.durationMs=Date.now()-t0;
+          diagnosticProps.outcome=outcome;
+          await appendTelemetry(serverTelemetryEvent(
+            "server_verification_diagnostic",
+            diagnosticProps,
+            runId
+          ));
         }
 
         if(item.historical){
@@ -783,7 +905,7 @@ async function fetchJson(url,timeoutMs=8000){
   }
 }
 
-async function lookupSiblingISBNs(isbn){
+async function lookupSiblingISBNs(isbn,bib=null){
   const normalized=normalizeISBN(isbn);
   const candidates=new Map();
   let order=0;
@@ -836,6 +958,46 @@ async function lookupSiblingISBNs(isbn){
       }
     }
   }catch{}
+
+  // C) Reissue discovery by strict bibliographic identity. Some publishers assign a
+  // new ISBN to a photographic-cover/reissue while AR remains attached to the
+  // older edition. Same-work identifiers are not always linked in Open Library,
+  // so search by exact normalized title + author and collect only ISBNs from
+  // records that independently match both. These are still only CANDIDATES; every
+  // candidate must subsequently return an AR result from Bookfinder.
+  if(bib?.title && bib?.author){
+    const wantedTitle=normalizeTitleForMatch(bib.title);
+    const wantedAuthor=normalizeAuthorForMatch(bib.author);
+    const authorTokens=wantedAuthor.split(" ").filter(Boolean);
+    const strictIdentity=(title,authors)=>{
+      const t=normalizeTitleForMatch(title);
+      const a=normalizeAuthorForMatch(Array.isArray(authors)?authors.join(" "):authors);
+      if(!wantedTitle || !wantedAuthor || t!==wantedTitle) return false;
+      return authorTokens.length>0 && authorTokens.every(tok=>a.includes(tok));
+    };
+
+    try{
+      const q=`https://openlibrary.org/search.json?title=${encodeURIComponent(bib.title)}&author=${encodeURIComponent(bib.author)}&limit=25&fields=title,author_name,isbn,first_publish_year,publish_year`;
+      const search=await fetchJson(q);
+      for(const doc of search?.docs||[]){
+        if(!strictIdentity(doc?.title,doc?.author_name||[])) continue;
+        const years=Array.isArray(doc?.publish_year)?doc.publish_year.filter(Number.isFinite):[];
+        const year=Math.min(...years,Number(doc?.first_publish_year)||9999);
+        for(const candidate of doc?.isbn||[]) add(candidate,{year:Number.isFinite(year)?year:null,source:"title_author_openlibrary"});
+      }
+    }catch{}
+
+    try{
+      const q=`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:${bib.title} inauthor:${bib.author}`)}&maxResults=20`;
+      const search=await fetchJson(q);
+      for(const item of search?.items||[]){
+        const v=item?.volumeInfo||{};
+        if(!strictIdentity(v?.title,v?.authors||[])) continue;
+        const year=editionYear(v?.publishedDate);
+        for(const id of v?.industryIdentifiers||[]) add(id?.identifier,{year,source:"title_author_google_books"});
+      }
+    }catch{}
+  }
 
   // Mathematical ISBN-10 equivalent remains the first candidate.
   const ten=isbn13To10(normalized);
@@ -1351,7 +1513,7 @@ async function performLookup(isbn,{refresh=false}={}) {
 
       const fallbackStartedAt=Date.now();
       const equivalent10=isbn13To10(isbn);
-      const siblingPromise=lookupSiblingISBNs(isbn).catch(e=>{
+      const siblingPromise=lookupSiblingISBNs(isbn,bib).catch(e=>{
         isbnDiagnostics.siblingLookupError=String(e?.message||e).slice(0,220);
         return [];
       });
@@ -1785,6 +1947,22 @@ function render(){
      '<table><tr><th>Historical unresolved</th><th>Fixed → AR</th><th>Verified no AR</th><th>Still failing</th><th>Regression tests</th><th>Passing</th></tr>'+ 
      '<tr><td>'+Number(latestServerRun.properties?.historicalTotal||0)+'</td><td class="good">'+Number(latestServerRun.properties?.historicalFixedToAr||0)+'</td><td>'+Number((latestServerRun.properties?.historicalConfirmedNoAr||0)+(latestServerRun.properties?.historicalResolvedToNoAr||0))+'</td><td class="'+(latestServerRun.properties?.historicalStillError?'bad':'')+'">'+Number(latestServerRun.properties?.historicalStillError||0)+'</td><td>'+Number(latestServerRun.properties?.regressionTotal||0)+'</td><td class="'+(latestServerRun.properties?.regressionFailed?'bad':'good')+'">'+Number(latestServerRun.properties?.regressionPassed||0)+' / '+Number(latestServerRun.properties?.regressionTotal||0)+'</td></tr></table>'+ 
      (serverHistorical.length?'<div style="height:12px"></div><b>Server historical results</b><table><tr><th>ISBN</th><th>Prior</th><th>Current</th><th>Outcome</th><th>Affected backups</th></tr>'+serverHistorical.slice().sort((a,b)=>String(a.properties?.isbn).localeCompare(String(b.properties?.isbn))).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc((e.properties?.priorStatuses||[]).join(", "))+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.outcome||"")+'</td><td>'+Number(e.properties?.affectedBackups||0)+'</td></tr>').join('')+'</table>':'')+
+     ((latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_verification_diagnostic"):[]).length
+       ? '<div style="height:14px"></div><b>Why unresolved books did not match</b><div class="muted" style="margin:5px 0 9px">Server-only trace of metadata and every fallback route attempted. This does not change user libraries.</div>'+
+         '<table><tr><th>ISBN / metadata</th><th>Exact ISBN</th><th>Equivalent / Quick</th><th>Title + author</th><th>Related editions</th><th>Final reason</th></tr>'+
+         raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="server_verification_diagnostic")
+           .slice().sort((a,b)=>String(a.properties?.isbn).localeCompare(String(b.properties?.isbn)))
+           .map(e=>{
+             const p=e.properties||{};
+             const meta='<b class="mono">'+esc(p.isbn||"")+'</b><br>'+esc(p.metadataTitle||"—")+(p.metadataAuthor?'<br><span class="muted">'+esc(p.metadataAuthor)+'</span>':'');
+             const eq=[p.equivalentSearchSummary,p.quickSearchSummary].filter(Boolean).map(esc).join('<br>');
+             const siblings=(p.siblingCandidates?'<div><b>Candidates:</b> '+esc(p.siblingCandidates)+'</div>':'')+
+               (p.siblingSearchSummary?'<details><summary>Attempt details</summary><div class="mono" style="white-space:normal;margin-top:5px">'+esc(p.siblingSearchSummary)+'</div></details>':'');
+             const final='<b>'+esc(p.finalStatus||"")+'</b>'+(p.errorCode?'<br>'+esc(p.errorCode):'')+(p.rejectionReason?'<br><span class="muted">'+esc(p.rejectionReason)+'</span>':'')+
+               (p.queryTrace?'<details><summary>Full query trace</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word;margin-top:5px">'+esc(p.queryTrace)+'</div></details>':'');
+             return '<tr><td>'+meta+'</td><td>'+esc(p.exactSearchSummary||"—")+'</td><td>'+(eq||"—")+'</td><td>'+esc(p.titleAuthorSummary||"—")+'</td><td>'+(siblings||"—")+'</td><td>'+final+'</td></tr>';
+           }).join('')+'</table>'
+       : '')+
      (serverRegression.some(e=>!e.properties?.passed)?'<div style="height:12px"></div><b class="bad">Regression failures</b><table><tr><th>ISBN</th><th>Result</th><th>Error</th></tr>'+serverRegression.filter(e=>!e.properties?.passed).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.errorCode||"")+'</td></tr>').join('')+'</table>':'')
    : '<b>Immediate server verification</b><div class="muted" style="margin-top:6px">No server verification run has completed yet. It runs automatically once per server release; you can also run it manually above.</div>';
 
