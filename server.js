@@ -23,7 +23,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.1.0";
+const SERVER_VERSION = "6.3.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -176,10 +176,17 @@ function sanitizeServerTelemetryProperties(input){
   const longTextKeys=new Set([
     "metadataTitle","metadataAuthor","rejectionReason","queryTrace",
     "siblingCandidates","exactSearchSummary","equivalentSearchSummary",
-    "quickSearchSummary","titleAuthorSummary","siblingSearchSummary"
+    "quickSearchSummary","titleAuthorSummary","siblingSearchSummary",
+    "probeBodyText","probeHtmlSnippet","probeBookLinks",
+    "openLibraryDirect","openLibrarySearch","googleBooksExact"
   ]);
   for(const key of longTextKeys){
-    if(input[key]!=null) out[key]=safeTelemetryString(input[key],key==="queryTrace"?9000:2400);
+    if(input[key]!=null){
+      const max=key==="queryTrace"?9000:
+        (key==="probeBodyText"||key==="probeHtmlSnippet"?6500:
+        (key==="openLibraryDirect"||key==="openLibrarySearch"||key==="googleBooksExact"?5000:2400));
+      out[key]=safeTelemetryString(input[key],max);
+    }
   }
   return out;
 }
@@ -330,6 +337,126 @@ async function readBackupVerificationCandidates(){
 let serverVerificationRunning=false;
 let serverVerificationLatest=null;
 let serverVerificationProgress=null;
+
+
+const BOOKFINDER_PROBE_TARGETS=[
+  {isbn:"9780746074855",label:"Ancient Greeks older edition"},
+  {isbn:"9781416991649",label:"Trouble at the Arcade older edition"},
+  {isbn:"9780448479170",label:"Known-good regression control"}
+];
+
+const METADATA_PROBE_ISBNS=[
+  "9781665930802","9781665930819","9781665930826","9781665930833"
+];
+
+function compactProbeJson(value,max=4800){
+  try{return JSON.stringify(value).slice(0,max)}catch{return String(value||"").slice(0,max)}
+}
+
+async function probeExactBookfinderISBN(isbn,label){
+  const browser=await getBrowser();
+  const context=await browser.newContext({
+    viewport:{width:1280,height:900},
+    userAgent:"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36"
+  });
+  context.setDefaultTimeout(12000);
+  const started=Date.now();
+  try{
+    const page=await context.newPage();
+    await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:25000});
+    const bookfinderRole=await ensureParentBookfinderSession(page);
+    const input=await findISBNInput(page);
+    const inputMeta={
+      id:await input.getAttribute("id").catch(()=>null),
+      name:await input.getAttribute("name").catch(()=>null),
+      type:await input.getAttribute("type").catch(()=>null),
+      placeholder:await input.getAttribute("placeholder").catch(()=>null)
+    };
+    await input.click({clickCount:3}).catch(()=>{});
+    await input.fill("");
+    await input.fill(isbn);
+    const submitMeta=await submitSearch(page,input);
+    await page.waitForTimeout(250);
+
+    const bodyText=await page.locator("body").innerText().catch(()=>"");
+    const bodyHtml=await page.locator("body").innerHTML().catch(()=>"");
+    const snap=await diagnosticSnapshot(page,{
+      searchedISBN:isbn,
+      submitMeta,
+      fieldValue:await input.inputValue().catch(()=>""),
+      bookfinderRole
+    });
+    const hrefs=await uniqueBookDetailHrefs(page).catch(()=>[]);
+    const quizIdx=bodyHtml.search(/AR Quiz No\.?/i);
+    const isbnIdx=bodyHtml.indexOf(isbn);
+    const htmlIdx=quizIdx>=0?quizIdx:isbnIdx;
+    const htmlSnippet=htmlIdx>=0
+      ? bodyHtml.slice(Math.max(0,htmlIdx-1800),htmlIdx+4200)
+      : bodyHtml.slice(0,6000);
+
+    return {
+      probeISBN:isbn,
+      probeLabel:label,
+      durationMs:Date.now()-started,
+      role:bookfinderRole,
+      finalUrl:page.url(),
+      inputMeta:compactProbeJson(inputMeta,1200),
+      submitMeta:compactProbeJson(submitMeta,1200),
+      resultCount:snap.resultCount,
+      containsQuiz:snap.containsQuiz,
+      containsATOS:snap.containsATOS,
+      resultLinks:snap.resultLinks,
+      uniqueDetailLinks:snap.uniqueDetailLinks,
+      visibleISBNs:(snap.isbns||[]).join(", "),
+      probeBookLinks:hrefs.join(" | "),
+      probeBodyText:bodyText.slice(0,6500),
+      probeHtmlSnippet:htmlSnippet
+    };
+  }catch(e){
+    return {
+      probeISBN:isbn,
+      probeLabel:label,
+      durationMs:Date.now()-started,
+      probeError:e?.message||String(e),
+      errorCode:e?.code||e?.name||"ERROR"
+    };
+  }finally{
+    await context.close().catch(()=>{});
+  }
+}
+
+async function probeMetadataSources(isbn){
+  const result={isbn};
+  try{
+    const r=await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${encodeURIComponent(isbn)}&jscmd=data&format=json`);
+    result.openLibraryDirect=compactProbeJson(r.ok?await r.json():{status:r.status});
+  }catch(e){result.openLibraryDirect=compactProbeJson({error:e?.message||String(e)})}
+
+  try{
+    const r=await fetch(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=10&fields=title,author_name,isbn,first_publish_year,key`);
+    result.openLibrarySearch=compactProbeJson(r.ok?await r.json():{status:r.status});
+  }catch(e){result.openLibrarySearch=compactProbeJson({error:e?.message||String(e)})}
+
+  try{
+    const c=new AbortController();
+    const t=setTimeout(()=>c.abort(),8000);
+    const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}&maxResults=10`,{signal:c.signal});
+    clearTimeout(t);
+    result.googleBooksExact=compactProbeJson(r.ok?await r.json():{status:r.status});
+  }catch(e){result.googleBooksExact=compactProbeJson({error:e?.message||String(e)})}
+  return result;
+}
+
+async function runDiagnosticProbes(runId){
+  for(const target of BOOKFINDER_PROBE_TARGETS){
+    const result=await probeExactBookfinderISBN(target.isbn,target.label);
+    await appendTelemetry(serverTelemetryEvent("bookfinder_exact_probe",result,runId));
+  }
+  for(const isbn of METADATA_PROBE_ISBNS){
+    const result=await probeMetadataSources(isbn);
+    await appendTelemetry(serverTelemetryEvent("metadata_source_probe",result,runId));
+  }
+}
 
 async function runServerVerification({reason="manual",force=false}={}){
   if(serverVerificationRunning) return {started:false,running:true,latest:serverVerificationLatest};
@@ -483,6 +610,8 @@ async function runServerVerification({reason="manual",force=false}={}){
     };
 
     await Promise.all([worker(),worker()]);
+    // Diagnostic-only probes. No live matching, cache, backup, or library mutation.
+    await runDiagnosticProbes(runId);
     summary.finishedAt=new Date().toISOString();
     if(serverVerificationProgress){
       serverVerificationProgress.finishedAt=summary.finishedAt;
@@ -1857,23 +1986,62 @@ function render(){
  const lookups=ev.filter(e=>["lookup_success","lookup_no_ar","lookup_error","lookup_timeout"].includes(e.eventName));
  const terminalTechnical=lookups.filter(e=>["lookup_success","lookup_no_ar"].includes(e.eventName));
  const ok=lookups.filter(e=>e.eventName==="lookup_success").length;
- const technicalSuccess=pct(terminalTechnical.length,lookups.length);
+ const lookupCompletion=pct(terminalTechnical.length,lookups.length);
  const arCoverage=pct(ok,terminalTechnical.length);
+
+ // "Accuracy" requires an independent expected answer. At present the trusted
+ // audit set is the regression registry (known AR-positive books). A server
+ // recheck that merely repeats "No AR" is NOT treated as ground truth.
+ const regressionEvents=raw.filter(e=>e.eventName==="server_regression_recheck_completed"&&e.properties?.isbn);
+ const trustedTruth=new Map();
+ for(const e of regressionEvents){
+   const isbn=e.properties.isbn;
+   trustedTruth.set(isbn,{expected:"ar",expectedQuizNumber:e.properties?.expectedQuizNumber||null});
+ }
+
+ const terminalLookupEvents=ev
+   .filter(e=>e.properties?.isbn&&["lookup_success","lookup_no_ar","lookup_error","lookup_timeout"].includes(e.eventName))
+   .slice().sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)));
+
+ const auditedAttempts=terminalLookupEvents.filter(e=>trustedTruth.has(e.properties.isbn));
+ const correctAuditedAttempts=auditedAttempts.filter(e=>{
+   const truth=trustedTruth.get(e.properties.isbn);
+   return truth?.expected==="ar" && e.eventName==="lookup_success";
+ });
+ const verifiedLookupAccuracy=auditedAttempts.length?pct(correctAuditedAttempts.length,auditedAttempts.length):null;
+
+ const capturedISBNs=[...new Set(captureEvents.map(e=>e.properties?.isbn).filter(Boolean))];
+ const latestByISBN=new Map();
+ for(const e of terminalLookupEvents) latestByISBN.set(e.properties.isbn,e);
+ const auditedLibraryISBNs=capturedISBNs.filter(isbn=>trustedTruth.has(isbn));
+ const correctAuditedLibraryISBNs=auditedLibraryISBNs.filter(isbn=>{
+   const e=latestByISBN.get(isbn);
+   const truth=trustedTruth.get(isbn);
+   return truth?.expected==="ar" && e?.eventName==="lookup_success";
+ });
+ const currentLibraryAccuracy=auditedLibraryISBNs.length?pct(correctAuditedLibraryISBNs.length,auditedLibraryISBNs.length):null;
+ const verificationCoverage=pct(auditedLibraryISBNs.length,capturedISBNs.length);
+
  const backup=ev.filter(e=>["backup_success","backup_failed"].includes(e.eventName));
  const backupOK=backup.filter(e=>e.eventName==="backup_success").length;
  const activeDaysByInstall=new Map();
  for(const e of ev){const d=e.timestamp.slice(0,10);if(!activeDaysByInstall.has(e.installId))activeDaysByInstall.set(e.installId,new Set());activeDaysByInstall.get(e.installId).add(d)}
  const returning=[...activeDaysByInstall.values()].filter(s=>s.size>=2).length;
+
+ const metricCard=(label,value,detail="")=>'<div class="card metric"><b>'+value+'</b><span>'+label+'</span>'+(detail?'<div class="muted" style="font-size:11px;margin-top:5px;line-height:1.35">'+detail+'</div>':'')+'</div>';
  $("metrics").innerHTML=[
- ["Active installs",installs],
- ["Sessions",sessions],
- ["Books captured",scans],
- ["Unique books",uniqueBooks],
- ["Technical lookup success",technicalSuccess+"%"],
- ["AR coverage",arCoverage+"%"],
- ["Backup success",pct(backupOK,backup.length)+"%"],
- ["Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length]
- ].map(([l,v])=>'<div class="card metric"><b>'+v+'</b><span>'+l+'</span></div>').join('');
+   metricCard("Active installs",installs),
+   metricCard("Sessions",sessions),
+   metricCard("Books captured",scans),
+   metricCard("Unique books",uniqueBooks),
+   metricCard("Lookup completion rate",lookupCompletion+"%",terminalTechnical.length+" of "+lookups.length+" lookup attempts completed without error/timeout"),
+   metricCard("Verified lookup accuracy",verifiedLookupAccuracy==null?"—":verifiedLookupAccuracy+"%",correctAuditedAttempts.length+" of "+auditedAttempts.length+" audited lookup attempts returned the independently expected answer"),
+   metricCard("Current library accuracy",currentLibraryAccuracy==null?"—":currentLibraryAccuracy+"%",correctAuditedLibraryISBNs.length+" of "+auditedLibraryISBNs.length+" verified library books are currently correct · "+auditedLibraryISBNs.length+" of "+capturedISBNs.length+" books verified"),
+   metricCard("Verification coverage",verificationCoverage+"%",auditedLibraryISBNs.length+" of "+capturedISBNs.length+" unique library books have independent ground truth"),
+   metricCard("AR coverage",arCoverage+"%","Share of completed lookups that returned an AR record; this is not an accuracy measure"),
+   metricCard("Backup success",pct(backupOK,backup.length)+"%"),
+   metricCard("Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length)
+ ].join('');
 
  const byInstall=new Map();
  for(const e of ev){if(!byInstall.has(e.installId))byInstall.set(e.installId,[]);byInstall.get(e.installId).push(e)}
@@ -1898,6 +2066,16 @@ function render(){
  const durations=lookups.map(e=>Number(e.properties?.durationMs)).filter(Number.isFinite);
  const match=ev.filter(e=>e.eventName==="lookup_success");
  const errs=ev.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName));
+ const auditRows=auditedLibraryISBNs.map(isbn=>{
+   const truth=trustedTruth.get(isbn);
+   const latest=latestByISBN.get(isbn);
+   const current=latest?.eventName==="lookup_success"?"AR found":
+     latest?.eventName==="lookup_no_ar"?"No AR":
+     latest?.eventName==="lookup_timeout"?"Timeout":
+     latest?.eventName==="lookup_error"?"Error":"No terminal result";
+   const correct=truth?.expected==="ar"&&latest?.eventName==="lookup_success";
+   return {isbn,expected:"AR",current,correct,quiz:truth?.expectedQuizNumber||null};
+ });
  const retriedKeys=new Set(ev.filter(e=>e.eventName==="lookup_retry"&&e.properties?.isbn).map(e=>e.installId+"|"+e.properties.isbn));
  const recoveredKeys=new Set(ev.filter(e=>e.eventName==="lookup_success"&&e.properties?.isbn).map(e=>e.installId+"|"+e.properties.isbn));
  const retryRecovered=[...retriedKeys].filter(k=>recoveredKeys.has(k)).length;
@@ -1910,6 +2088,11 @@ function render(){
  '<tr><td>Timeouts</td><td>'+ev.filter(e=>e.eventName==="lookup_timeout"||e.properties?.errorCode==="LOOKUP_TIMEOUT").length+'</td></tr>'+
  '<tr><td>Backup failures</td><td>'+ev.filter(e=>e.eventName==="backup_failed").length+'</td></tr>'+
  '<tr><td>Restore failures</td><td>'+ev.filter(e=>e.eventName==="restore_failed").length+'</td></tr></table>'+
+ '<div style="height:14px"></div><b>Accuracy audit</b><div class="muted" style="margin:4px 0 8px">Only books with independent ground truth count toward accuracy. Repeated “No AR” responses are not assumed correct.</div>'+
+ (auditRows.length
+   ? '<table><tr><th>ISBN</th><th>Expected</th><th>Current result</th><th>Correct?</th></tr>'+
+     auditRows.map(r=>'<tr><td class="mono">'+esc(r.isbn)+'</td><td>'+esc(r.expected)+(r.quiz?' · quiz '+esc(r.quiz):'')+'</td><td>'+esc(r.current)+'</td><td class="'+(r.correct?'good':'bad')+'">'+(r.correct?'Yes':'No')+'</td></tr>').join('')+'</table>'
+   : '<span class="muted">No captured books currently have independent ground truth.</span>')+
  '<div style="height:12px"></div><b>Successful match paths</b>'+bars(countBy(match,e=>e.properties?.matchBasis||"isbn"))+
  '<div style="height:12px"></div><b>Error types</b>'+bars(countBy(errs,e=>e.properties?.errorCode||e.properties?.errorType||"error"));
 
@@ -1962,6 +2145,29 @@ function render(){
                (p.queryTrace?'<details><summary>Full query trace</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word;margin-top:5px">'+esc(p.queryTrace)+'</div></details>':'');
              return '<tr><td>'+meta+'</td><td>'+esc(p.exactSearchSummary||"—")+'</td><td>'+(eq||"—")+'</td><td>'+esc(p.titleAuthorSummary||"—")+'</td><td>'+(siblings||"—")+'</td><td>'+final+'</td></tr>';
            }).join('')+'</table>'
+       : '')+
+     ((latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="bookfinder_exact_probe"):[]).length
+       ? '<div style="height:14px"></div><b>Known alternate ISBN probes</b><div class="muted" style="margin:5px 0 9px">Direct Bookfinder probes for two known older editions plus a known-good control. Diagnostic only.</div>'+
+         '<table><tr><th>ISBN</th><th>Result structure</th><th>Book links</th><th>Returned text / HTML</th></tr>'+
+         raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="bookfinder_exact_probe")
+           .map(e=>{const p=e.properties||{};
+             const structure='<b>'+esc(p.probeLabel||"")+'</b><br>role='+esc(p.role||"—")+' · results='+esc(p.resultCount??"—")+' · quiz='+esc(p.containsQuiz?"yes":"no")+' · ATOS='+esc(p.containsATOS?"yes":"no")+' · detail links='+esc(p.uniqueDetailLinks??"—")+
+               (p.probeError?'<br><span class="bad">'+esc(p.probeError)+'</span>':'')+
+               '<br><span class="mono">'+esc(p.finalUrl||"")+'</span>';
+             const snippets='<details><summary>Body text</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word">'+esc(p.probeBodyText||"")+'</div></details>'+
+               '<details><summary>HTML near ISBN / AR fields</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word">'+esc(p.probeHtmlSnippet||"")+'</div></details>';
+             return '<tr><td class="mono">'+esc(p.probeISBN||"")+'</td><td>'+structure+'</td><td class="mono">'+esc(p.probeBookLinks||"—")+'</td><td>'+snippets+'</td></tr>';
+           }).join('')+'</table>'
+       : '')+
+     ((latestRunId?raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="metadata_source_probe"):[]).length
+       ? '<div style="height:14px"></div><b>Hardy Boys metadata source probes</b><div class="muted" style="margin:5px 0 9px">Raw bibliographic responses for the newer reprint ISBNs. Diagnostic only.</div>'+
+         '<table><tr><th>ISBN</th><th>Open Library direct</th><th>Open Library search</th><th>Google Books exact ISBN</th></tr>'+
+         raw.filter(e=>e.sessionId===latestRunId&&e.eventName==="metadata_source_probe")
+           .map(e=>{const p=e.properties||{};return '<tr><td class="mono">'+esc(p.isbn||"")+'</td>'+
+             '<td><details><summary>View</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word">'+esc(p.openLibraryDirect||"")+'</div></details></td>'+
+             '<td><details><summary>View</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word">'+esc(p.openLibrarySearch||"")+'</div></details></td>'+
+             '<td><details><summary>View</summary><div class="mono" style="white-space:pre-wrap;word-break:break-word">'+esc(p.googleBooksExact||"")+'</div></details></td></tr>'}).join('')+
+         '</table>'
        : '')+
      (serverRegression.some(e=>!e.properties?.passed)?'<div style="height:12px"></div><b class="bad">Regression failures</b><table><tr><th>ISBN</th><th>Result</th><th>Error</th></tr>'+serverRegression.filter(e=>!e.properties?.passed).map(e=>'<tr><td class="mono">'+esc(e.properties?.isbn||"")+'</td><td>'+esc(e.properties?.resultStatus||"")+'</td><td>'+esc(e.properties?.errorCode||"")+'</td></tr>').join('')+'</table>':'')
    : '<b>Immediate server verification</b><div class="muted" style="margin-top:6px">No server verification run has completed yet. It runs automatically once per server release; you can also run it manually above.</div>';
