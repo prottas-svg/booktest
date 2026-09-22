@@ -15,6 +15,9 @@ const NO_AR_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const cache = new Map();
 const noArCache = new Map();
 
+const EDITION_FAMILY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const editionFamilyCache = new Map();
+
 const BACKUP_DIR = process.env.BACKUP_DIR || "/data/backups";
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
 
@@ -23,7 +26,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.3.0";
+const SERVER_VERSION = "6.4.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -1137,6 +1140,29 @@ async function lookupSiblingISBNs(isbn,bib=null){
     .map(x=>x.isbn)
     .slice(0,20);
 }
+
+async function discoverEditionFamily(isbn,bibPromise){
+  const normalized=normalizeISBN(isbn);
+  const hit=editionFamilyCache.get(normalized);
+  if(hit && Date.now()-hit.time<EDITION_FAMILY_CACHE_TTL_MS){
+    return {bib:hit.bib||null,candidates:[...(hit.candidates||[])],cached:true,durationMs:0};
+  }
+
+  const started=Date.now();
+  let bib=null,candidates=[];
+  try{bib=await bibPromise}catch{}
+  try{candidates=await lookupSiblingISBNs(normalized,bib)}catch{}
+
+  const seen=new Set();
+  candidates=(candidates||[])
+    .map(normalizeISBN)
+    .filter(x=>(x.length===10||x.length===13)&&x!==normalized&&!seen.has(x)&&seen.add(x))
+    .slice(0,20);
+
+  editionFamilyCache.set(normalized,{bib,candidates,time:Date.now()});
+  return {bib,candidates,cached:false,durationMs:Date.now()-started};
+}
+
 async function searchBookfinderExactISBN(page,isbn){
   await page.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
   const input=await findISBNInput(page);
@@ -1587,7 +1613,7 @@ async function performLookup(isbn,{refresh=false}={}) {
   if(!refresh){
     const miss=noArCache.get(isbn);
     if(miss && Date.now()-miss.time<NO_AR_CACHE_TTL_MS){
-      const e=new Error("No AR result was found by ISBN, related editions, or a unique title/author match.");
+      const e=new Error("No AR result was found for the scanned ISBN or any discovered edition ISBN, and no unique title/author fallback matched.");
       e.code="NOT_FOUND";
       e.bib=miss.bib||null;
       e.diagnostics={...(miss.diagnostics||{}),cachedNoAr:true};
@@ -1596,6 +1622,9 @@ async function performLookup(isbn,{refresh=false}={}) {
   }
 
   const bibPromise=lookupBibliographic(isbn);
+  // Run bibliographic/edition discovery in parallel with the exact scanned-ISBN lookup.
+  // The normal success path never waits for this work.
+  const editionFamilyPromise=discoverEditionFamily(isbn,bibPromise);
   const browser=await getBrowser();
   const context=await browser.newContext({
     viewport:{width:1280,height:900},
@@ -1641,99 +1670,43 @@ async function performLookup(isbn,{refresh=false}={}) {
       )) && !searchHasAR){
 
       const fallbackStartedAt=Date.now();
-      const equivalent10=isbn13To10(isbn);
-      const siblingPromise=lookupSiblingISBNs(isbn,bib).catch(e=>{
-        isbnDiagnostics.siblingLookupError=String(e?.message||e).slice(0,220);
-        return [];
-      });
 
-      // v5.7 speed pass: independent authoritative fallback routes run concurrently
-      // in small batches. Each route still has to produce a verified Bookfinder result;
-      // concurrency changes latency, not the acceptance standard.
-      const fastTasks=[];
-      if(equivalent10){
-        fastTasks.push({
-          kind:"equivalent_isbn",
-          run:async p=>{
-            const r=await searchBookfinderExactISBN(p,equivalent10);
-            if(r?.diagnostics) isbnDiagnostics.equivalentISBNAttempt=r.diagnostics;
-            if(!r?.found) return null;
-            return {ar:r.ar,matchedISBN:equivalent10,matchBasis:"equivalent_isbn"};
-          },
-          onError:e=>{isbnDiagnostics.equivalentISBNError=String(e?.message||e).slice(0,220)}
-        });
-      }
-      fastTasks.push({
-        kind:"quick_isbn_unique",
-        run:async p=>{
-          const q=await searchBookfinderQuickByISBN(p,isbn);
-          if(q?.diagnostics) isbnDiagnostics.quickSearch=q.diagnostics;
-          if(!q?.found) return null;
-          return {ar:q.ar,identity:q.identity,matchBasis:"quick_isbn_unique"};
-        },
-        onError:e=>{isbnDiagnostics.quickSearchError=String(e?.message||e).slice(0,220)}
-      });
-      if(bib?.title && bib?.author){
-        fastTasks.push({
-          kind:"title_author",
-          run:async p=>{
-            await p.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
-            const f=await searchBookfinderByTitleAuthor(p,bib.title,bib.author);
-            isbnDiagnostics.titleAuthorAttempt={title:bib.title,author:bib.author,found:Boolean(f)};
-            if(!f) return null;
-            return {ar:parseAR(f.text,isbn,f.pageUrl),matchBasis:"title_author"};
-          },
-          onError:e=>{isbnDiagnostics.titleAuthorAttempt={title:bib.title,author:bib.author,found:false,error:String(e?.message||e).slice(0,220)}}
-        });
-      }
-
-      let fallback=await runFallbackTasks(context,fastTasks,3);
-      if(fallback){
-        const value={
-          ...fallback.ar,
-          isbn,
-          scannedISBN:isbn,
-          title:bib?.title||fallback.identity?.title||bfIdentity.title||null,
-          author:bib?.author||fallback.identity?.author||bfIdentity.author||null,
-          cover:bib?.cover||null,
-          pages:bib?.pages||null,
-          metadataSource:(bib?.title||bib?.author)?(bib.metadataSource||"Open Library"):"AR Bookfinder",
-          arSource:"AR Bookfinder",
-          matchBasis:fallback.matchBasis,
-          matchedISBN:fallback.matchedISBN||null,
-          lookedUpAt:new Date().toISOString()
-        };
-        noArCache.delete(isbn);
-        cache.set(isbn,{time:Date.now(),value});
-        return value;
-      }
-
-      const siblingCandidates=await siblingPromise;
-      isbnDiagnostics.siblingCandidates=siblingCandidates.slice(0,12);
+      // PHASE 2 starts only after the scanned ISBN has failed.
+      // Discovery has already been running in parallel, so in the common case
+      // the candidate list is ready immediately.
+      const family=await editionFamilyPromise;
+      const bib=family?.bib||await bibPromise.catch(()=>null);
+      const siblingCandidates=family?.candidates||[];
+      isbnDiagnostics.discovery={
+        startedInParallel:true,
+        cached:Boolean(family?.cached),
+        durationMs:Number(family?.durationMs)||0,
+        candidateCount:siblingCandidates.length
+      };
+      isbnDiagnostics.siblingCandidates=siblingCandidates.slice(0,20);
       isbnDiagnostics.siblingAttempts=[];
-      const attempted=new Set(equivalent10?[equivalent10]:[]);
-      const siblingTasks=siblingCandidates
-        .filter(x=>!attempted.has(x))
-        .map(sibling=>({
-          kind:"related_edition_isbn",
-          run:async p=>{
-            const r=await searchBookfinderExactISBN(p,sibling);
-            if(r?.diagnostics && isbnDiagnostics.siblingAttempts.length<12){
-              isbnDiagnostics.siblingAttempts.push(r.diagnostics);
-            }
-            if(!r?.found) return null;
-            return {ar:r.ar,matchedISBN:sibling,matchBasis:"related_edition_isbn"};
-          },
-          onError:e=>{
-            if(isbnDiagnostics.siblingAttempts.length<12){
-              isbnDiagnostics.siblingAttempts.push({isbn:sibling,error:String(e?.message||e).slice(0,220)});
-            }
-          }
-        }));
 
-      fallback=await runFallbackTasks(context,siblingTasks,3);
-      isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
+      // Every discovered edition is checked as its own exact Bookfinder ISBN query.
+      const candidateTasks=siblingCandidates.map(candidate=>({
+        kind:"related_edition_isbn",
+        run:async p=>{
+          const r=await searchBookfinderExactISBN(p,candidate);
+          if(r?.diagnostics && isbnDiagnostics.siblingAttempts.length<20){
+            isbnDiagnostics.siblingAttempts.push(r.diagnostics);
+          }
+          if(!r?.found) return null;
+          return {ar:r.ar,matchedISBN:candidate,matchBasis:"related_edition_isbn"};
+        },
+        onError:e=>{
+          if(isbnDiagnostics.siblingAttempts.length<20){
+            isbnDiagnostics.siblingAttempts.push({isbn:candidate,error:String(e?.message||e).slice(0,220)});
+          }
+        }
+      }));
+
+      let fallback=await runFallbackTasks(context,candidateTasks,3);
       if(fallback){
+        isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
         const value={
           ...fallback.ar,
           isbn,
@@ -1753,9 +1726,58 @@ async function performLookup(isbn,{refresh=false}={}) {
         return value;
       }
 
+      // Looser routes are last-resort fallbacks, only after all discovered ISBNs
+      // have been tried independently.
+      const looseTasks=[{
+        kind:"quick_isbn_unique",
+        run:async p=>{
+          const q=await searchBookfinderQuickByISBN(p,isbn);
+          if(q?.diagnostics) isbnDiagnostics.quickSearch=q.diagnostics;
+          if(!q?.found) return null;
+          return {ar:q.ar,identity:q.identity,matchBasis:"quick_isbn_unique"};
+        },
+        onError:e=>{isbnDiagnostics.quickSearchError=String(e?.message||e).slice(0,220)}
+      }];
+
+      if(bib?.title && bib?.author){
+        looseTasks.push({
+          kind:"title_author",
+          run:async p=>{
+            await p.goto(BOOKFINDER_URL,{waitUntil:"domcontentloaded",timeout:15000});
+            const f=await searchBookfinderByTitleAuthor(p,bib.title,bib.author);
+            isbnDiagnostics.titleAuthorAttempt={title:bib.title,author:bib.author,found:Boolean(f)};
+            if(!f) return null;
+            return {ar:parseAR(f.text,isbn,f.pageUrl),matchBasis:"title_author"};
+          },
+          onError:e=>{isbnDiagnostics.titleAuthorAttempt={title:bib.title,author:bib.author,found:false,error:String(e?.message||e).slice(0,220)}}
+        });
+      }
+
+      fallback=await runFallbackTasks(context,looseTasks,2);
+      if(fallback){
+        isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
+        const value={
+          ...fallback.ar,
+          isbn,
+          scannedISBN:isbn,
+          title:bib?.title||fallback.identity?.title||bfIdentity.title||null,
+          author:bib?.author||fallback.identity?.author||bfIdentity.author||null,
+          cover:bib?.cover||null,
+          pages:bib?.pages||null,
+          metadataSource:(bib?.title||bib?.author)?(bib.metadataSource||"Open Library"):"AR Bookfinder",
+          arSource:"AR Bookfinder",
+          matchBasis:fallback.matchBasis,
+          matchedISBN:fallback.matchedISBN||null,
+          lookedUpAt:new Date().toISOString()
+        };
+        noArCache.delete(isbn);
+        cache.set(isbn,{time:Date.now(),value});
+        return value;
+      }
+
       isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
       noArCache.set(isbn,{time:Date.now(),bib,diagnostics:isbnDiagnostics});
-      const e=new Error("No AR result was found by ISBN, related editions, or a unique title/author match.");
+      const e=new Error("No AR result was found for the scanned ISBN or any discovered edition ISBN, and no unique title/author fallback matched.");
       e.code="NOT_FOUND";e.bib=bib;e.diagnostics=isbnDiagnostics;throw e;
     }
 
