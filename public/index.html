@@ -606,7 +606,7 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
 <main>
 <h1>My AR Shelf</h1>
 <div class="small" style="margin-top:4px">Scan, organize, and manage your AR books.</div>
-<div class="build"><span>v5.7</span><span style="opacity:.55">•</span><span>September 19, 2026</span></div>
+<div class="build"><span id="buildVersion">v6.2</span><span style="opacity:.55">•</span><span id="buildDate">September 22, 2026</span></div>
 
 <div id="installTip" class="install-tip">
   <div class="install-tip-icon" aria-hidden="true">↗</div>
@@ -865,6 +865,7 @@ const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
 const APP_VERSION='6.2';
+const APP_RELEASE_DATE='September 22, 2026';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
 
@@ -1190,7 +1191,7 @@ async function repairMissingBookNames(){
 }
 
 
-const UNRESOLVED_RECHECK_VERSION='6.1';
+const UNRESOLVED_RECHECK_VERSION='6.2';
 const UNRESOLVED_RECHECK_KEY='scan_ar_unresolved_recheck_version_v1';
 
 function queueUnresolvedBooksForReleaseRecheck(){
@@ -1866,6 +1867,16 @@ Keep this code private. It can restore your My AR Shelf household library and ki
   trackEvent('recovery_code_download');
   showToast('Recovery code file downloaded');
 }
+
+// The build badge is what a tester reads when reporting a problem, so it is
+// written from APP_VERSION rather than typed into the markup (it read v5.7
+// through four releases).
+(()=>{
+  const v=document.getElementById('buildVersion');
+  if(v)v.textContent='v'+APP_VERSION;
+  const d=document.getElementById('buildDate');
+  if(d)d.textContent=APP_RELEASE_DATE;
+})();
 
 $('copyRecoveryCodeBtn').onclick=copyRecoveryCode;
 $('downloadRecoveryCodeBtn').onclick=downloadRecoveryCode;
