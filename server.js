@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.4.2";
+const SERVER_VERSION = "6.4.4";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -359,10 +359,7 @@ function compactProbeJson(value,max=4800){
 
 async function probeExactBookfinderISBN(isbn,label){
   const browser=await getBrowser();
-  const context=await browser.newContext({
-    viewport:{width:1280,height:900},
-    userAgent:"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36"
-  });
+  const context=await newBookfinderContext(browser);
   context.setDefaultTimeout(12000);
   const started=Date.now();
   try{
@@ -529,6 +526,7 @@ async function runServerVerification({reason="manual",force=false}={}){
         const n=next++;
         if(n>=items.length) return;
         const item=items[n];
+        await waitForUserLookupsToFinish();
         const progressItem=serverVerificationProgress?.items?.[n];
         if(progressItem){
           progressItem.status="checking";
@@ -788,10 +786,41 @@ function getBrowser() {
   if (!browserPromise) {
     browserPromise = chromium.launch({
       headless:true,
-      args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage"]
+      args:[
+        "--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage",
+        // v6.4.4: trim renderer memory. Proven case: "locator.count: Target crashed"
+        // on 9780803740884, i.e. Chromium died mid-lookup on the container.
+        "--disable-gpu","--disable-extensions","--disable-background-networking",
+        "--disable-backgrounding-occluded-windows","--disable-renderer-backgrounding",
+        "--disable-features=TranslateUI,BackForwardCache,AcceptCHFrame",
+        "--blink-settings=imagesEnabled=false","--mute-audio","--no-first-run"
+      ]
+    }).then(b=>{
+      // If Chromium dies, drop the handle so the next lookup launches a fresh one
+      // instead of every later request failing against a dead browser.
+      b.on("disconnected",()=>{browserPromise=undefined;browserCrashes++});
+      return b;
     }).catch(err=>{browserPromise=undefined;throw err});
   }
   return browserPromise;
+}
+let browserCrashes=0;
+function isBrowserCrash(e){
+  return /target crashed|browser has been closed|browser has disconnected|target closed/i.test(String(e?.message||e));
+}
+// v6.4.4: one place to build a Bookfinder context, with images/fonts/media blocked.
+// Bookfinder's AR fields are text, so the artwork costs memory and time for nothing.
+async function newBookfinderContext(browser){
+  const context=await browser.newContext({
+    viewport:{width:1024,height:768},
+    userAgent:"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36"
+  });
+  await context.route("**/*",route=>{
+    const type=route.request().resourceType();
+    if(type==="image"||type==="media"||type==="font") return route.abort().catch(()=>{});
+    return route.continue().catch(()=>{});
+  }).catch(()=>{});
+  return context;
 }
 
 function firstMatch(text, regexes) {
@@ -1622,7 +1651,19 @@ async function runFallbackTasks(context,tasks,batchSize=3){
   return null;
 }
 
+// v6.4.3: per-lookup timing, readable even when the deadline kills the lookup.
+const liveTiming=new Map();
+function startTiming(isbn){
+  if(liveTiming.size>200) liveTiming.clear();
+  const t={startedAt:Date.now(),steps:[]};
+  t.mark=(label,extra)=>{t.steps.push({step:label,atMs:Date.now()-t.startedAt,...(extra||{})})};
+  t.elapsed=()=>Date.now()-t.startedAt;
+  liveTiming.set(isbn,t);
+  return t;
+}
+
 async function performLookup(isbn,{refresh=false}={}) {
+  const timing=startTiming(isbn);
   const hit=cache.get(isbn);
   const cacheComplete=Boolean(hit?.value?.title && hit?.value?.author);
   if(!refresh && hit && cacheComplete && Date.now()-hit.time<CACHE_TTL_MS) {
@@ -1644,10 +1685,8 @@ async function performLookup(isbn,{refresh=false}={}) {
   // The normal success path never waits for this work.
   const editionFamilyPromise=discoverEditionFamily(isbn,bibPromise);
   const browser=await getBrowser();
-  const context=await browser.newContext({
-    viewport:{width:1280,height:900},
-    userAgent:"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36"
-  });
+  timing.mark("browser_ready");
+  const context=await newBookfinderContext(browser);
   context.setDefaultTimeout(12000);
   try{
     const page=await context.newPage();
@@ -1668,6 +1707,7 @@ async function performLookup(isbn,{refresh=false}={}) {
       inferredIdentity:parseBookfinderIdentity(await page.locator("body").innerText().catch(()=>""))
     });
     let text=searchText;
+    timing.mark("exact_search_read");
 
     const resultCount=parseBookfinderResultCount(searchText);
     const searchHasAR=/AR Quiz No\./i.test(searchText);
@@ -1692,6 +1732,7 @@ async function performLookup(isbn,{refresh=false}={}) {
       // PHASE 2 starts only after the scanned ISBN has failed.
       // Discovery has already been running in parallel, so in the common case
       // the candidate list is ready immediately.
+      timing.mark("exact_search_no_result");
       const family=await editionFamilyPromise;
       const bib=family?.bib||await bibPromise.catch(()=>null);
       const siblingCandidates=family?.candidates||[];
@@ -1703,14 +1744,23 @@ async function performLookup(isbn,{refresh=false}={}) {
       };
       isbnDiagnostics.siblingCandidates=siblingCandidates.slice(0,20);
       isbnDiagnostics.siblingAttempts=[];
+      timing.mark("discovery_ready",{candidates:siblingCandidates.length});
+      let candidatesStarted=0, candidatesSkippedForTime=0;
 
       // Every discovered edition is checked as its own exact Bookfinder ISBN query.
       const candidateTasks=siblingCandidates.map(candidate=>({
         kind:"related_edition_isbn",
         run:async p=>{
+          if(timing.elapsed()>CANDIDATE_START_CUTOFF_MS){
+            candidatesSkippedForTime++;
+            return null;
+          }
+          candidatesStarted++;
+          const candidateStartedAt=Date.now();
           const r=await searchBookfinderExactISBN(p,candidate);
+          timing.mark("candidate_done",{isbn:candidate,ms:Date.now()-candidateStartedAt,found:Boolean(r?.found)});
           if(r?.diagnostics && isbnDiagnostics.siblingAttempts.length<20){
-            isbnDiagnostics.siblingAttempts.push(r.diagnostics);
+            isbnDiagnostics.siblingAttempts.push({...r.diagnostics,durationMs:Date.now()-candidateStartedAt});
           }
           if(!r?.found) return null;
           return {ar:r.ar,matchedISBN:candidate,matchBasis:"related_edition_isbn"};
@@ -1722,7 +1772,13 @@ async function performLookup(isbn,{refresh=false}={}) {
         }
       }));
 
-      let fallback=await runFallbackTasks(context,candidateTasks,3);
+      let fallback=await runFallbackTasks(context,candidateTasks,2);
+      timing.mark("candidates_done",{started:candidatesStarted,skippedForTime:candidatesSkippedForTime});
+      isbnDiagnostics.candidateBudget={
+        started:candidatesStarted,
+        skippedForTime:candidatesSkippedForTime,
+        cutoffMs:CANDIDATE_START_CUTOFF_MS
+      };
       if(fallback){
         isbnDiagnostics.fallbackDurationMs=Date.now()-fallbackStartedAt;
         const value={
@@ -2337,7 +2393,7 @@ app.get("/api/lookup-status",(_req,res)=>res.json({
 }));
 
 app.get("/api/status",async(_req,res)=>{
-  try{const b=await getBrowser();res.json({ok:true,browserConnected:b.isConnected(),cacheEntries:cache.size})}
+  try{const b=await getBrowser();res.json({ok:true,browserConnected:b.isConnected(),browserCrashes,cacheEntries:cache.size})}
   catch(e){res.status(503).json({ok:false,browserConnected:false,error:String(e?.message||e)})}
 });
 
@@ -2351,6 +2407,19 @@ app.get("/api/meta/:isbn",async(req,res)=>{
 
 
 const TOTAL_LOOKUP_TIMEOUT_MS=45000;
+// v6.4.3: after this point no NEW candidate-edition query is started, so a slow
+// lookup can report where its time went instead of dying with a bare LOOKUP_TIMEOUT.
+const CANDIDATE_START_CUTOFF_MS=36000;
+// v6.4.4: a parent's live scan always outranks background verification. The analytics
+// showed a verification run and manual lookups competing for one browser, and the
+// live lookups timed out.
+let activeUserLookups=0;
+async function waitForUserLookupsToFinish(maxWaitMs=180000){
+  const until=Date.now()+maxWaitMs;
+  while(activeUserLookups>0 && Date.now()<until){
+    await new Promise(r=>setTimeout(r,500));
+  }
+}
 
 function withLookupDeadline(promise,ms=TOTAL_LOOKUP_TIMEOUT_MS){
   let timer;
@@ -2368,15 +2437,19 @@ app.get("/api/ar/:isbn",async(req,res)=>{
   const isbn=normalizeISBN(req.params.isbn);
   if(!isValidISBN(isbn))return res.status(400).json({error:"Enter a valid ISBN-10 or ISBN-13 (checksum failed)."});
   try{
-    const result=await withLookupDeadline(performLookup(isbn,{refresh:req.query.refresh==="1"}));
+    activeUserLookups++;
+    const result=await withLookupDeadline(performLookup(isbn,{refresh:req.query.refresh==="1"}))
+      .finally(()=>{activeUserLookups=Math.max(0,activeUserLookups-1)});
     return res.json(result);
   }catch(e){
     console.error(`[lookup ${isbn}]`,e);
     if(e.code==="LOOKUP_TIMEOUT"){
+      const t=liveTiming.get(isbn);
       return res.status(504).json({
         isbn,
         error:"AR lookup took too long. Please retry.",
         code:"LOOKUP_TIMEOUT",
+        timing:t?{totalMs:t.elapsed(),steps:t.steps}:null,
         lookedUpAt:new Date().toISOString()
       });
     }
@@ -2392,6 +2465,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
     const bib=e.bib||await lookupBibliographic(isbn);
     const fallback={
       isbn,
+      browserCrash:isBrowserCrash(e)||undefined,
       title:bib?.title||null,
       author:bib?.author||null,
       cover:bib?.cover||null,
@@ -2410,7 +2484,7 @@ const port=Number(process.env.PORT||3000);
 const server=app.listen(port,"0.0.0.0",()=>{
   console.log(`My AR Shelf v${SERVER_VERSION} listening on ${port}`);
   // Verify historical unresolved books and known-good regressions once per release.
-  setTimeout(()=>{void runServerVerification({reason:"startup_release",force:false})},2500);
+  setTimeout(()=>{void runServerVerification({reason:"startup_release",force:false})},60000);
 });
 async function shutdown(){
   console.log("Shutting down…");server.close();
