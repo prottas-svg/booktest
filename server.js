@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.5.2";
+const SERVER_VERSION = "6.5.4";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -2268,6 +2268,11 @@ function renderPerTester(ev){
    const opens=list.filter(e=>e.eventName==="app_open").length;
    const days=new Set(list.map(e=>e.timestamp.slice(0,10))).size;
    const captured=new Set(list.filter(e=>e.eventName==="book_captured").map(e=>e.properties?.isbn).filter(Boolean));
+   // The device reports its real library size on every app_open, which covers books
+   // scanned before telemetry existed — those have no book_captured event at all.
+   const opensWithCount=list.filter(e=>e.eventName==="app_open"&&Number.isFinite(e.properties?.bookCount));
+   const librarySize=opensWithCount.length?opensWithCount[opensWithCount.length-1].properties.bookCount:null;
+   const libraryKids=opensWithCount.length?(opensWithCount[opensWithCount.length-1].properties.kidCount??null):null;
    const attempts=list.filter(e=>TERMINAL.includes(e.eventName));
    const failedAttempts=attempts.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length;
    // current state per book: the most recent terminal event for that ISBN
@@ -2284,13 +2289,14 @@ function renderPerTester(ev){
      else failing++;
    }
    const booksKnown=new Set([...captured,...latest.keys()]).size;
-   return {id,opens,days,booksKnown,attempts:attempts.length,failedAttempts,ar,noAr,failing,
+   return {id,opens,days,booksKnown,librarySize,libraryKids,attempts:attempts.length,failedAttempts,ar,noAr,failing,
            isOwner:ownerInstalls.has(id),
            lastSeen:list.reduce((m,e)=>e.timestamp>m?e.timestamp:m,"")};
  }).sort((a,b)=>b.booksKnown-a.booksKnown || String(b.lastSeen).localeCompare(String(a.lastSeen)));
 
  if(!rows.length) return '<span class="muted">No tester activity in this window.</span>';
  const widest=Math.max(...rows.map(r=>r.ar+r.noAr+r.failing),1);
+ rows.sort((a,b)=>(b.librarySize??b.booksKnown)-(a.librarySize??a.booksKnown) || String(b.lastSeen).localeCompare(String(a.lastSeen)));
  const legend='<div class="legend"><span><i class="sw-ar"></i>AR found</span><span><i class="sw-noar"></i>No AR</span><span><i class="sw-fail"></i>Still failing</span></div>';
  const body=rows.map(r=>{
    const shown=r.ar+r.noAr+r.failing;
@@ -2312,19 +2318,26 @@ function renderPerTester(ev){
        (r.isOwner?' <span class="owner-badge">you</span>':'')+
        '<br><button class="owner-btn" data-owner-toggle="'+esc(r.id)+'" data-owner-state="'+(r.isOwner?'1':'0')+'">'+
        (r.isOwner?'not mine':'mark as mine')+'</button></td>'+
-     '<td>'+r.opens+'</td><td>'+r.days+'</td><td>'+r.booksKnown+'</td>'+
+     '<td>'+r.opens+'</td><td>'+r.days+'</td>'+
+     '<td>'+(r.librarySize===null?'<span class="muted">?</span>':r.librarySize)+
+       (r.libraryKids?'<span class="muted" style="font-size:11px"> · '+r.libraryKids+' kid'+(r.libraryKids===1?'':'s')+'</span>':'')+'</td>'+
+     '<td>'+r.booksKnown+'</td>'+
      '<td>'+r.attempts+'</td><td>'+failCell+'</td>'+
      '<td><span class="good">'+r.ar+'</span></td><td>'+r.noAr+'</td><td>'+stuckCell+'</td>'+
      '<td style="min-width:110px">'+stack+'</td>'+
      '<td class="muted">'+(r.lastSeen?new Date(r.lastSeen).toLocaleDateString():"—")+'</td></tr>';
  }).join('');
  return legend+
-   '<table><tr><th>Install</th><th>Opens</th><th>Days</th><th>Books</th>'+
+   '<table><tr><th>Install</th><th>Opens</th><th>Days</th>'+
+   '<th>Library<br><span class="muted" style="font-weight:400">on device</span></th>'+
+   '<th>Books scanned<br><span class="muted" style="font-weight:400">in window</span></th>'+
    '<th>Lookups</th><th>Failed then</th><th>AR now</th><th>No AR now</th><th>Stuck now</th>'+
    '<th>Book results</th><th>Last seen</th></tr>'+body+'</table>'+
    '<div class="muted" style="margin-top:8px;font-size:12px">“Failed then” counts lookup attempts that ended in an error or timeout. '+
    '“Stuck now” counts books whose most recent result is still an error — these are the books a parent sees as unresolved today. '+
-   'Bar length is relative to the largest library; hover a bar for its counts.</div>';
+   '“Library on device” is the book count the app itself reported when it was last opened, so it includes books scanned before telemetry existed. '+
+   'The other columns cover the selected time window only. '+
+   'Switch the window to All time for totals per tester. Bar length is relative to the largest count shown; hover a bar for its counts.</div>';
 }
 
 function render(){
