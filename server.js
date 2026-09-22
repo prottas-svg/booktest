@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.5.1";
+const SERVER_VERSION = "6.5.2";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -686,6 +686,27 @@ function requireAdmin(req,res,next){
   next();
 }
 
+
+// v6.5.2: installs the owner marks as their own, so owner testing does not
+// distort the picture of how real testers are doing.
+const OWNER_INSTALLS_FILE=path.join(TELEMETRY_DIR,"owner-installs.json");
+async function readOwnerInstalls(){
+  try{
+    const parsed=JSON.parse(await fs.readFile(OWNER_INSTALLS_FILE,"utf8"));
+    return Array.isArray(parsed?.installIds)?parsed.installIds.filter(x=>typeof x==="string"):[];
+  }catch(e){
+    if(e?.code!=="ENOENT") console.error("[owner installs read]",e);
+    return [];
+  }
+}
+async function writeOwnerInstalls(ids){
+  await fs.mkdir(TELEMETRY_DIR,{recursive:true});
+  const unique=[...new Set(ids)].slice(0,50);
+  const temp=OWNER_INSTALLS_FILE+".tmp";
+  await fs.writeFile(temp,JSON.stringify({installIds:unique}),"utf8");
+  await fs.rename(temp,OWNER_INSTALLS_FILE);
+  return unique;
+}
 
 async function ensureBackupDir(){
   await fs.mkdir(BACKUP_DIR,{recursive:true});
@@ -2097,7 +2118,22 @@ app.post("/api/telemetry",async(req,res)=>{
 
 app.get("/api/admin/analytics",requireAdmin,async(_req,res)=>{
   const events=await readTelemetryEvents();
-  res.json({ok:true,events,serverVerification:{running:serverVerificationRunning,latest:serverVerificationLatest,progress:serverVerificationProgress}});
+  res.json({ok:true,events,ownerInstalls:await readOwnerInstalls(),serverVerification:{running:serverVerificationRunning,latest:serverVerificationLatest,progress:serverVerificationProgress}});
+});
+
+app.post("/api/admin/owner-install",requireAdmin,async(req,res)=>{
+  const installId=String(req.body?.installId||"");
+  if(!/^[a-z0-9_-]{6,80}$/i.test(installId))return res.status(400).json({error:"Invalid install id."});
+  const current=await readOwnerInstalls();
+  const next=req.body?.owner===false
+    ? current.filter(x=>x!==installId)
+    : [...current,installId];
+  try{
+    return res.json({ok:true,installIds:await writeOwnerInstalls(next)});
+  }catch(e){
+    console.error("[owner installs write]",e);
+    return res.status(503).json({error:"Could not save. Is a volume mounted?"});
+  }
 });
 
 app.get("/api/admin/server-recheck-status",requireAdmin,async(_req,res)=>{
@@ -2139,6 +2175,9 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 .legend{display:flex;gap:14px;font-size:12px;color:#73776f;margin:2px 0 10px}
 .legend span{display:flex;align-items:center;gap:5px}
 .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.owner-badge{background:#e6ecdf;color:#3B6D11;border-radius:999px;padding:1px 7px;font-size:11px}
+.owner-btn{font-size:11px;padding:1px 6px;margin-top:3px;background:none;border:1px solid #d7d9d2;border-radius:6px;cursor:pointer;color:#73776f}
+.owner-btn:hover{border-color:#9aa094}
 .verify-progress-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:10px 0 12px}.verify-progress-grid>div{background:#f7f8f5;border-radius:10px;padding:10px}.verify-progress-grid b{display:block;font-size:20px}.verify-progress-grid span{font-size:11px;color:#73776f}.status-checking{font-weight:700}.status-completed{color:#35623b}.status-queued{color:#73776f}
 @media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.cols{grid-template-columns:1fr}}
 </style>
@@ -2150,6 +2189,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <select id="window"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="9999">All time</option></select>
 <select id="version"><option value="">All versions</option></select>
 <button id="refresh">Refresh</button>
+<label class="muted" style="display:inline-flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" id="excludeOwner"> Exclude my own installs from totals</label>
 <span id="refreshStatus" class="muted"></span>
 <button id="runServerRecheck">Run server verification</button>
 <span id="serverRecheckStatus" class="muted"></span>
@@ -2180,8 +2220,27 @@ function filteredAll(){
 function isServerEvent(e){
  return e?.installId==="server_verification" || e?.platform==="server" || String(e?.eventName||"").startsWith("server_");
 }
+let ownerInstalls=new Set();
 function filtered(){
+ const ev=filteredAll().filter(e=>!isServerEvent(e));
+ // Owner installs stay visible per tester, but can be kept out of the totals.
+ if(document.getElementById("excludeOwner")?.checked) return ev.filter(e=>!ownerInstalls.has(e.installId));
+ return ev;
+}
+function filteredIncludingOwner(){
  return filteredAll().filter(e=>!isServerEvent(e));
+}
+async function setOwnerInstall(installId,owner){
+ try{
+   const r=await fetch("/api/admin/owner-install",{
+     method:"POST",headers:{"content-type":"application/json"},
+     body:JSON.stringify({installId,owner})
+   });
+   const j=await r.json().catch(()=>({}));
+   if(!r.ok)throw new Error(j.error||"Could not save.");
+   ownerInstalls=new Set(j.installIds||[]);
+   render();
+ }catch(e){alert(e.message||"Could not save.")}
 }
 function quantile(vals,q){
  const a=vals.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return null;
@@ -2226,6 +2285,7 @@ function renderPerTester(ev){
    }
    const booksKnown=new Set([...captured,...latest.keys()]).size;
    return {id,opens,days,booksKnown,attempts:attempts.length,failedAttempts,ar,noAr,failing,
+           isOwner:ownerInstalls.has(id),
            lastSeen:list.reduce((m,e)=>e.timestamp>m?e.timestamp:m,"")};
  }).sort((a,b)=>b.booksKnown-a.booksKnown || String(b.lastSeen).localeCompare(String(a.lastSeen)));
 
@@ -2248,7 +2308,10 @@ function renderPerTester(ev){
      : '<span class="muted">0</span>';
    const stuckCell=r.failing?'<span class="bad">'+r.failing+'</span>':'<span class="good">0</span>';
    return '<tr>'+
-     '<td><span class="clickable mono" data-install="'+esc(r.id)+'">'+esc(r.id.slice(0,10))+'…</span></td>'+
+     '<td><span class="clickable mono" data-install="'+esc(r.id)+'">'+esc(r.id.slice(0,10))+'…</span>'+
+       (r.isOwner?' <span class="owner-badge">you</span>':'')+
+       '<br><button class="owner-btn" data-owner-toggle="'+esc(r.id)+'" data-owner-state="'+(r.isOwner?'1':'0')+'">'+
+       (r.isOwner?'not mine':'mark as mine')+'</button></td>'+
      '<td>'+r.opens+'</td><td>'+r.days+'</td><td>'+r.booksKnown+'</td>'+
      '<td>'+r.attempts+'</td><td>'+failCell+'</td>'+
      '<td><span class="good">'+r.ar+'</span></td><td>'+r.noAr+'</td><td>'+stuckCell+'</td>'+
@@ -2330,7 +2393,10 @@ function render(){
    metricCard("Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length)
  ].join('');
 
- $("perTester").innerHTML=renderPerTester(ev);
+ $("perTester").innerHTML=renderPerTester(filteredIncludingOwner());
+ document.querySelectorAll("[data-owner-toggle]").forEach(btn=>{
+   btn.onclick=()=>setOwnerInstall(btn.dataset.ownerToggle,btn.dataset.ownerState!=="1");
+ });
 
  const byInstall=new Map();
  for(const e of ev){if(!byInstall.has(e.installId))byInstall.set(e.installId,[]);byInstall.get(e.installId).push(e)}
@@ -2531,6 +2597,7 @@ async function load({manual=false}={}){
    const r=await fetch("/api/admin/analytics",{cache:"no-store"});
    if(!r.ok)throw new Error('Could not load analytics');
    const j=await r.json();raw=j.events||[];
+   ownerInstalls=new Set(j.ownerInstalls||[]);
    const userEvents=raw.filter(e=>!isServerEvent(e));
    const versions=[...new Set(userEvents.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
    $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
@@ -2563,7 +2630,7 @@ async function runServerRecheck(){
  }catch{$("serverRecheckStatus").textContent='Could not start server verification.'}
  finally{setTimeout(()=>btn.disabled=false,2500)}
 }
-$("window").onchange=render;$("version").onchange=render;$("refresh").onclick=manualRefresh;$("runServerRecheck").onclick=runServerRecheck;load();
+$("window").onchange=render;$("version").onchange=render;$("excludeOwner").onchange=render;$("refresh").onclick=manualRefresh;$("runServerRecheck").onclick=runServerRecheck;load();
 </script></body></html>`;
 }
 
