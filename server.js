@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.4.1";
+const SERVER_VERSION = "6.4.2";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -922,6 +922,32 @@ async function ensureParentBookfinderSession(page){
   }
 }
 
+
+// v6.4.2: wait for Bookfinder's search postback to actually finish.
+// Previously the code waited for "domcontentloaded" on the page that was ALREADY
+// loaded, so it often read the old, unsubmitted form ~150 ms after clicking.
+// That produced PARSE_CHANGED and skipped the other-edition route
+// (proven: 9781536208788 returned the bare search form with no results area).
+const SEARCH_SETTLED_SRC="AR Quiz No\\.|No results found|Title\\s+\\d+\\s*-\\s*\\d+\\s+of\\s+\\d+";
+async function clickAndSettle(page,action){
+  const started=Date.now();
+  const before=await page.evaluate(()=>{
+    window.__arShelfPreSubmit=true;
+    return document.body?document.body.innerText:"";
+  }).catch(()=>"");
+  await action();
+  // 1) old document replaced (full postback) OR body changed to show a result state (partial update)
+  const replaced=await page.waitForFunction(([src,old])=>{
+    const body=document.body?document.body.innerText:"";
+    if(!window.__arShelfPreSubmit && document.readyState!=="loading") return true;
+    return body!==old && new RegExp(src,"i").test(body);
+  },[SEARCH_SETTLED_SRC,before],{timeout:12000,polling:100}).then(()=>true).catch(()=>false);
+  // 2) give the result/no-result marker a short grace period to render
+  const marker=await page.waitForFunction(src=>new RegExp(src,"i").test(document.body?document.body.innerText:""),
+    SEARCH_SETTLED_SRC,{timeout:4000,polling:100}).then(()=>true).catch(()=>false);
+  return {replaced,marker,ms:Date.now()-started};
+}
+
 async function submitSearch(page,input) {
   // Important: Bookfinder's Advanced Search form has multiple controls.
   // Pressing Enter can trigger a different/default action. Mimic the manual flow:
@@ -949,10 +975,7 @@ async function submitSearch(page,input) {
             name:await btn.getAttribute("name").catch(()=>null),
             value:await btn.getAttribute("value").catch(()=>null)
           };
-          await Promise.all([
-            page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
-            btn.click()
-          ]);
+          meta.settle=await clickAndSettle(page,()=>btn.click());
           await page.waitForTimeout(150);
           return meta;
         }
@@ -961,10 +984,7 @@ async function submitSearch(page,input) {
   }
 
   // Only as a last resort use Enter; diagnostics will make that visible.
-  await Promise.all([
-    page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
-    input.press("Enter")
-  ]);
+  await clickAndSettle(page,()=>input.press("Enter"));
   await page.waitForTimeout(150);
   return {method:"enter-fallback"};
 }
@@ -1454,10 +1474,7 @@ async function submitQuickSearch(page,input){
             name:await btn.getAttribute("name").catch(()=>null),
             value:await btn.getAttribute("value").catch(()=>null)
           };
-          await Promise.all([
-            page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
-            btn.click()
-          ]);
+          meta.settle=await clickAndSettle(page,()=>btn.click());
           await page.waitForTimeout(150);
           return meta;
         }
@@ -1465,10 +1482,7 @@ async function submitQuickSearch(page,input){
     }
   }
 
-  await Promise.all([
-    page.waitForLoadState("domcontentloaded",{timeout:12000}).catch(()=>{}),
-    input.press("Enter")
-  ]);
+  await clickAndSettle(page,()=>input.press("Enter"));
   await page.waitForTimeout(150);
   return {method:"quick-enter-fallback"};
 }
