@@ -17,6 +17,7 @@ const noArCache = new Map();
 
 const EDITION_FAMILY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const editionFamilyCache = new Map();
+const THIN_FAMILY_CACHE_MS = 60 * 60 * 1000;
 
 const BACKUP_DIR = process.env.BACKUP_DIR || "/data/backups";
 const MAX_BACKUP_BYTES = 2 * 1024 * 1024;
@@ -26,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.4.0";
+const SERVER_VERSION = "6.4.1";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -832,7 +833,7 @@ function parseAR(text,isbn,finalUrl) {
   const quizNumber=firstMatch(normalized,[/AR Quiz No\.?:?\s*#?([0-9]+)/i,/Quiz Number:?\s*#?([0-9]+)/i]);
   const atosRaw=firstMatch(normalized,[/ATOS Book Level:?\s*([0-9.]+)/i,/\bBL:?\s*([0-9.]+)/i]);
   const pointsRaw=firstMatch(normalized,[/AR Points:?\s*([0-9.]+)/i,/AR Pts:?\s*([0-9.]+)/i]);
-  const interest=firstMatch(normalized,[/Interest Level:?\s*([^\n\r]+)/i,/\bIL:?\s*([A-Z]+\+?)/]);
+  const interest=firstMatch(normalized,[/Interest Level:[ \t]*([^\n\r]+)/i,/\bIL:?\s*([A-Z]+\+?)/,/Interest Level:?\s*(?!->)([^\n\r]+)/i]);
   const wordRaw=firstMatch(normalized,[/Word Count:?\s*([0-9,]+)/i]);
   if(!quizNumber || atosRaw==null) {
     const e=new Error("Bookfinder returned a result, but required AR fields could not be recognized.");
@@ -1159,7 +1160,10 @@ async function discoverEditionFamily(isbn,bibPromise){
     .filter(x=>(x.length===10||x.length===13)&&x!==normalized&&!seen.has(x)&&seen.add(x))
     .slice(0,20);
 
-  editionFamilyCache.set(normalized,{bib,candidates,time:Date.now()});
+  // v6.4.1: a result with no metadata and at most the ISBN-10 equivalent may be a
+  // transient Open Library/Google Books failure; cache it for 1 hour, not 7 days.
+  const thin=!bib && candidates.length<=1;
+  editionFamilyCache.set(normalized,{bib,candidates,time:thin?Date.now()-EDITION_FAMILY_CACHE_TTL_MS+THIN_FAMILY_CACHE_MS:Date.now()});
   return {bib,candidates,cached:false,durationMs:Date.now()-started};
 }
 
@@ -1800,7 +1804,14 @@ async function performLookup(isbn,{refresh=false}={}) {
     if(!/AR Quiz No\./i.test(text)){
       // Some search-result layouts contain the AR fields directly.
       // If navigation removed them, fall back to the verified search text.
-      if(verifiedOnSearch && /AR Quiz No\./i.test(searchText)) {
+      // v6.4.1: the same fallback applies to isbn_search_unique results, where the
+      // row omits the ISBN. Proven case: 9781416991649 showed quiz 137100 in the row,
+      // but the detail page lacked "AR Quiz No." and the lookup failed as PARSE_CHANGED.
+      if((verifiedOnSearch || uniqueISBNSearchResult) && /AR Quiz No\./i.test(searchText)) {
+        isbnDiagnostics.usedSearchRowFallback={
+          detailUrl:page.url(),
+          detailPreview:String(text||"").slice(0,600)
+        };
         text=searchText;
       } else {
         const e=new Error("Bookfinder returned a page, but its AR fields could not be recognized.");
