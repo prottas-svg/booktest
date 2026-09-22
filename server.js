@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.4.4";
+const SERVER_VERSION = "6.4.5";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -537,7 +537,17 @@ async function runServerVerification({reason="manual",force=false}={}){
         const t0=Date.now();
         let resultStatus="error", outcome="still_error", result=null, errorCode=null, lookupError=null;
         try{
-          result=await withLookupDeadline(performLookup(item.isbn,{refresh:true}));
+          try{
+            result=await withLookupDeadline(performLookup(item.isbn,{refresh:true}));
+          }catch(firstError){
+            // A failure inside a few seconds means the lookup never really ran
+            // (cold page, browser restart). Give it one clean retry before
+            // recording an error against the book.
+            if(firstError?.code==="NOT_FOUND" || Date.now()-t0>6000) throw firstError;
+            await new Promise(r=>setTimeout(r,1500));
+            result=await withLookupDeadline(performLookup(item.isbn,{refresh:true}));
+            if(serverVerificationProgress?.items?.[n]) serverVerificationProgress.items[n].retried=true;
+          }
           resultStatus="found";
           outcome="fixed_to_ar";
         }catch(e){
@@ -611,7 +621,14 @@ async function runServerVerification({reason="manual",force=false}={}){
       }
     };
 
-    await Promise.all([worker(),worker()]);
+    // v6.4.5: warm the browser first and stagger the second worker. Proven case:
+    // 9780545940221 failed in 1s as the first item of a cold run, then passed on its
+    // own with quiz 176430 — a startup race, not a real lookup failure.
+    await getBrowser().catch(()=>{});
+    await Promise.all([
+      worker(),
+      (async()=>{await new Promise(r=>setTimeout(r,2000));return worker()})()
+    ]);
     // Diagnostic-only probes. No live matching, cache, backup, or library mutation.
     await runDiagnosticProbes(runId);
     summary.finishedAt=new Date().toISOString();
