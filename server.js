@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.5.0";
+const SERVER_VERSION = "6.5.1";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -2133,6 +2133,12 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 .good{color:#35623b}.bad{color:#9a4038}.muted{color:#73776f}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .timeline{max-height:420px;overflow:auto}.timeline div{padding:7px 0;border-bottom:1px solid #eee;font-size:12px}
 .clickable{cursor:pointer;text-decoration:underline;text-decoration-style:dotted}
+.stack{display:flex;height:10px;border-radius:999px;overflow:hidden;background:#eceee9}
+.stack i{display:block;height:100%}
+.sw-ar{background:#4f7a54}.sw-noar{background:#b9c2b4}.sw-fail{background:#b0564c}
+.legend{display:flex;gap:14px;font-size:12px;color:#73776f;margin:2px 0 10px}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
 .verify-progress-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:10px 0 12px}.verify-progress-grid>div{background:#f7f8f5;border-radius:10px;padding:10px}.verify-progress-grid b{display:block;font-size:20px}.verify-progress-grid span{font-size:11px;color:#73776f}.status-checking{font-weight:700}.status-completed{color:#35623b}.status-queued{color:#73776f}
 @media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.cols{grid-template-columns:1fr}}
 </style>
@@ -2150,6 +2156,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 </div>
 <div id="metrics" class="grid"></div>
 <div class="section"><h2>Activation & uptake</h2><div class="card" id="funnel"></div></div>
+<div class="section"><h2>Per-tester experience</h2><div class="card" id="perTester"></div></div>
 <div class="cols">
 <div class="section"><h2>Behavior</h2><div class="card"><div id="behavior"></div></div></div>
 <div class="section"><h2>Reliability</h2><div class="card"><div id="reliability"></div></div></div>
@@ -2189,6 +2196,74 @@ function bars(rows){
  return rows.slice(0,12).map(([k,n])=>'<div class="barrow"><span>'+esc(k)+'</span><div class="bar"><i style="width:'+Math.round(n/max*100)+'%"></i></div><b>'+n+'</b></div>').join('');
 }
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+// Per-tester view: one row per install, so a single tester having a bad
+// experience is visible instead of being averaged away.
+function renderPerTester(ev){
+ const byInstall=new Map();
+ for(const e of ev){
+   if(!byInstall.has(e.installId)) byInstall.set(e.installId,[]);
+   byInstall.get(e.installId).push(e);
+ }
+ const TERMINAL=["lookup_success","lookup_no_ar","lookup_error","lookup_timeout"];
+ const rows=[...byInstall.entries()].map(([id,list])=>{
+   const opens=list.filter(e=>e.eventName==="app_open").length;
+   const days=new Set(list.map(e=>e.timestamp.slice(0,10))).size;
+   const captured=new Set(list.filter(e=>e.eventName==="book_captured").map(e=>e.properties?.isbn).filter(Boolean));
+   const attempts=list.filter(e=>TERMINAL.includes(e.eventName));
+   const failedAttempts=attempts.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length;
+   // current state per book: the most recent terminal event for that ISBN
+   const latest=new Map();
+   for(const e of attempts){
+     const isbn=e.properties?.isbn; if(!isbn) continue;
+     const prev=latest.get(isbn);
+     if(!prev || e.timestamp>prev.timestamp) latest.set(isbn,e);
+   }
+   let ar=0,noAr=0,failing=0;
+   for(const e of latest.values()){
+     if(e.eventName==="lookup_success") ar++;
+     else if(e.eventName==="lookup_no_ar") noAr++;
+     else failing++;
+   }
+   const booksKnown=new Set([...captured,...latest.keys()]).size;
+   return {id,opens,days,booksKnown,attempts:attempts.length,failedAttempts,ar,noAr,failing,
+           lastSeen:list.reduce((m,e)=>e.timestamp>m?e.timestamp:m,"")};
+ }).sort((a,b)=>b.booksKnown-a.booksKnown || String(b.lastSeen).localeCompare(String(a.lastSeen)));
+
+ if(!rows.length) return '<span class="muted">No tester activity in this window.</span>';
+ const widest=Math.max(...rows.map(r=>r.ar+r.noAr+r.failing),1);
+ const legend='<div class="legend"><span><i class="sw-ar"></i>AR found</span><span><i class="sw-noar"></i>No AR</span><span><i class="sw-fail"></i>Still failing</span></div>';
+ const body=rows.map(r=>{
+   const shown=r.ar+r.noAr+r.failing;
+   const total=Math.max(shown,1);
+   const w=n=>Math.round(n/total*100);
+   // Bar width is proportional to library size, so a 1-book tester does not look
+   // like a 12-book tester. Counts are in the tooltip.
+   const scale=Math.round(shown/widest*100);
+   const tip=esc(r.ar+' AR · '+r.noAr+' no AR · '+r.failing+' still failing');
+   const stack=shown
+     ? '<div class="stack" title="'+tip+'" style="width:'+Math.max(scale,8)+'%"><i class="sw-ar" style="width:'+w(r.ar)+'%"></i><i class="sw-noar" style="width:'+w(r.noAr)+'%"></i><i class="sw-fail" style="width:'+w(r.failing)+'%"></i></div>'
+     : '<span class="muted">no books yet</span>';
+   const failCell=r.failedAttempts
+     ? '<span class="bad">'+r.failedAttempts+'</span>'
+     : '<span class="muted">0</span>';
+   const stuckCell=r.failing?'<span class="bad">'+r.failing+'</span>':'<span class="good">0</span>';
+   return '<tr>'+
+     '<td><span class="clickable mono" data-install="'+esc(r.id)+'">'+esc(r.id.slice(0,10))+'…</span></td>'+
+     '<td>'+r.opens+'</td><td>'+r.days+'</td><td>'+r.booksKnown+'</td>'+
+     '<td>'+r.attempts+'</td><td>'+failCell+'</td>'+
+     '<td><span class="good">'+r.ar+'</span></td><td>'+r.noAr+'</td><td>'+stuckCell+'</td>'+
+     '<td style="min-width:110px">'+stack+'</td>'+
+     '<td class="muted">'+(r.lastSeen?new Date(r.lastSeen).toLocaleDateString():"—")+'</td></tr>';
+ }).join('');
+ return legend+
+   '<table><tr><th>Install</th><th>Opens</th><th>Days</th><th>Books</th>'+
+   '<th>Lookups</th><th>Failed then</th><th>AR now</th><th>No AR now</th><th>Stuck now</th>'+
+   '<th>Book results</th><th>Last seen</th></tr>'+body+'</table>'+
+   '<div class="muted" style="margin-top:8px;font-size:12px">“Failed then” counts lookup attempts that ended in an error or timeout. '+
+   '“Stuck now” counts books whose most recent result is still an error — these are the books a parent sees as unresolved today. '+
+   'Bar length is relative to the largest library; hover a bar for its counts.</div>';
+}
+
 function render(){
  const ev=filtered();
  const installs=uniq(ev.map(e=>e.installId)), sessions=uniq(ev.map(e=>e.sessionId));
@@ -2254,6 +2329,8 @@ function render(){
    metricCard("Backup success",pct(backupOK,backup.length)+"%"),
    metricCard("Lookup errors",lookups.filter(e=>["lookup_error","lookup_timeout"].includes(e.eventName)).length)
  ].join('');
+
+ $("perTester").innerHTML=renderPerTester(ev);
 
  const byInstall=new Map();
  for(const e of ev){if(!byInstall.has(e.installId))byInstall.set(e.installId,[]);byInstall.get(e.installId).push(e)}
