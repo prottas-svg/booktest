@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.4.5";
+const SERVER_VERSION = "6.5.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -698,6 +698,66 @@ function normalizeRecoveryCode(value=""){
 function backupPath(code){
   const hash=crypto.createHash("sha256").update(code).digest("hex");
   return path.join(BACKUP_DIR,hash+".json");
+}
+
+// v6.5.0: keep previous versions of every backup. Before this, a PUT overwrote the
+// only copy, so an erase followed by any change destroyed the household library
+// with no way back. History lives in its own directory so the verification scan,
+// which only reads files, ignores it.
+const BACKUP_HISTORY_KEEP=10;
+function backupHistoryDir(code){
+  const hash=crypto.createHash("sha256").update(code).digest("hex");
+  return path.join(BACKUP_DIR,"history",hash);
+}
+async function archiveExistingBackup(code){
+  const target=backupPath(code);
+  let raw;
+  try{raw=await fs.readFile(target,"utf8")}catch(e){
+    if(e?.code==="ENOENT") return null;      // nothing to archive yet
+    throw e;
+  }
+  let savedAt=null,bookCount=null,kidCount=null;
+  try{
+    const parsed=JSON.parse(raw);
+    savedAt=parsed?.savedAt||null;
+    bookCount=parsed?.data?.books?Object.keys(parsed.data.books).length:null;
+    kidCount=Array.isArray(parsed?.data?.kids)?parsed.data.kids.length:null;
+  }catch{}
+  const dir=backupHistoryDir(code);
+  await fs.mkdir(dir,{recursive:true});
+  const id=`${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+  const temp=path.join(dir,id+".json.tmp");
+  await fs.writeFile(temp,raw,"utf8");
+  await fs.rename(temp,path.join(dir,id+".json"));
+  // prune oldest, keeping the most recent BACKUP_HISTORY_KEEP versions
+  try{
+    const names=(await fs.readdir(dir)).filter(n=>n.endsWith(".json")).sort();
+    for(const name of names.slice(0,Math.max(0,names.length-BACKUP_HISTORY_KEEP))){
+      await fs.unlink(path.join(dir,name)).catch(()=>{});
+    }
+  }catch{}
+  return {id,savedAt,bookCount,kidCount};
+}
+async function listBackupHistory(code){
+  const dir=backupHistoryDir(code);
+  let names=[];
+  try{names=(await fs.readdir(dir)).filter(n=>n.endsWith(".json"))}catch(e){
+    if(e?.code==="ENOENT") return [];
+    throw e;
+  }
+  const out=[];
+  for(const name of names){
+    try{
+      const parsed=JSON.parse(await fs.readFile(path.join(dir,name),"utf8"));
+      out.push({
+        id:name.replace(/\.json$/,""),
+        savedAt:parsed?.savedAt||null,
+        bookCount:parsed?.data?.books?Object.keys(parsed.data.books).length:0,
+        kidCount:Array.isArray(parsed?.data?.kids)?parsed.data.kids.length:0
+      });
+    }catch{}
+  }
+  return out.sort((a,b)=>String(b.id).localeCompare(String(a.id)));
 }
 
 let browserPromise;
@@ -1962,13 +2022,45 @@ app.put("/api/backup/:code", async (req,res)=>{
     await ensureBackupDir();
     const savedAt=new Date().toISOString();
     const record={version:1,savedAt,clientUpdatedAt:payload.clientUpdatedAt||null,data:payload.data};
+    // archive whatever is currently stored before replacing it
+    let archived=null;
+    try{archived=await archiveExistingBackup(code)}catch(e){console.error("[backup archive]",e)}
     const target=backupPath(code),temp=target+".tmp";
     await fs.writeFile(temp,JSON.stringify(record),"utf8");
     await fs.rename(temp,target);
-    return res.json({ok:true,savedAt});
+    return res.json({ok:true,savedAt,previousVersionId:archived?.id||null});
   }catch(e){
     console.error("[backup write]",e);
     return res.status(503).json({error:"Online backup storage is unavailable. Make sure a Railway volume is mounted at /data."});
+  }
+});
+
+// List earlier versions of a backup, so a library can be recovered after an
+// accidental erase or an unwanted overwrite.
+app.get("/api/backup/:code/history", async (req,res)=>{
+  const code=normalizeRecoveryCode(req.params.code);
+  if(!code)return res.status(400).json({error:"Invalid recovery code."});
+  try{
+    return res.json({ok:true,versions:await listBackupHistory(code)});
+  }catch(e){
+    console.error("[backup history]",e);
+    return res.status(503).json({error:"Online backup storage is unavailable."});
+  }
+});
+
+app.get("/api/backup/:code/history/:id", async (req,res)=>{
+  const code=normalizeRecoveryCode(req.params.code);
+  if(!code)return res.status(400).json({error:"Invalid recovery code."});
+  const id=String(req.params.id||"");
+  if(!/^[0-9]+-[0-9a-f]{6}$/.test(id))return res.status(400).json({error:"Invalid backup version."});
+  try{
+    const raw=await fs.readFile(path.join(backupHistoryDir(code),id+".json"),"utf8");
+    const record=JSON.parse(raw);
+    return res.json({ok:true,savedAt:record.savedAt,versionId:id,data:record.data});
+  }catch(e){
+    if(e?.code==="ENOENT")return res.status(404).json({error:"That backup version was not found."});
+    console.error("[backup history read]",e);
+    return res.status(503).json({error:"Online backup storage is unavailable."});
   }
 });
 
