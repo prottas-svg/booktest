@@ -772,8 +772,10 @@ nav button{flex:1;min-width:0;min-height:52px;padding:5px 6px;border-radius:14px
     <input id="restoreCodeInput" autocomplete="off" autocapitalize="characters" placeholder="Enter recovery code">
     <div class="row" style="margin-top:8px">
       <button id="restoreBtn">Restore library</button>
+      <button id="showVersionsBtn" class="secondary">Earlier backups</button>
       <button id="cancelRestoreBtn" class="ghost">Cancel</button>
     </div>
+    <div id="restoreVersions" class="small" style="margin-top:8px"></div>
   </div>
   <div id="serverBackupTime" class="backup-last"></div>
 </div>
@@ -862,7 +864,7 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-const APP_VERSION='6.1';
+const APP_VERSION='6.2';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
 
@@ -1051,14 +1053,40 @@ function renderProtectionStatus(state='idle',detail=''){
   const code=$('recoveryCodeDisplay');
   if(code)code.textContent=getRecoveryCode();
 }
-async function restoreFromServer(){
+async function listBackupVersions(){
+  const code=cleanRecoveryCode($('restoreCodeInput').value);
+  const box=$('restoreVersions');
+  if(!code){box.textContent='Enter a recovery code first.';return}
+  box.textContent='Loading earlier backups…';
+  try{
+    const r=await fetch('/api/backup/'+encodeURIComponent(code)+'/history');
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(j.error||'Could not load earlier backups.');
+    const versions=Array.isArray(j.versions)?j.versions:[];
+    if(!versions.length){box.textContent='No earlier backups are stored for this code yet.';return}
+    box.innerHTML='<div style="margin-bottom:6px">Earlier backups (newest first):</div>';
+    for(const v of versions){
+      const when=v.savedAt?new Date(v.savedAt).toLocaleString():'unknown date';
+      const btn=document.createElement('button');
+      btn.className='secondary';
+      btn.style.cssText='display:block;width:100%;text-align:left;margin-bottom:6px';
+      btn.textContent=when+' — '+v.bookCount+' book'+(v.bookCount===1?'':'s')+', '+v.kidCount+' child'+(v.kidCount===1?'':'ren');
+      btn.onclick=()=>restoreFromServer(v.id,when);
+      box.appendChild(btn);
+    }
+  }catch(e){box.textContent=e.message||'Could not load earlier backups.'}
+}
+async function restoreFromServer(versionId,versionLabel){
   const code=cleanRecoveryCode($('restoreCodeInput').value);
   if(!code)return alert('Enter a recovery code.');
-  if(!confirm('Replace the library on this device with the recovered library?'))return;
+  const question=versionId
+    ? 'Replace the library on this device with the backup from '+versionLabel+'?'
+    : 'Replace the library on this device with the recovered library?';
+  if(!confirm(question))return;
   const telemetryRestoreStarted=performance.now();
   trackEvent('restore_started');
   try{
-    const r=await fetch('/api/backup/'+encodeURIComponent(code));
+    const r=await fetch('/api/backup/'+encodeURIComponent(code)+(versionId?'/history/'+encodeURIComponent(versionId):''));
     const j=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(j.error||'Recovery code not found.');
     if(!j.data||typeof j.data!=='object')throw new Error('Backup is invalid.');
@@ -1068,7 +1096,7 @@ async function restoreFromServer(){
     localStorage.setItem(SERVER_BACKUP_TIME_KEY,j.savedAt||now());
     $('restoreBox').classList.remove('show');
     renderAll();renderProtectionStatus('ok');
-    trackEvent('restore_success',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
+    trackEvent('restore_success',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),bookCount:Object.keys(data.books).length,kidCount:data.kids.length,fromEarlierVersion:Boolean(versionId)});
     alert('Library restored.');
   }catch(e){trackEvent('restore_failed',{durationMs:Math.round(performance.now()-telemetryRestoreStarted),errorType:e?.name||'Error',errorCode:e?.message||'Restore failed'});alert(e.message||'Restore failed.')}
 }
@@ -1842,7 +1870,8 @@ Keep this code private. It can restore your My AR Shelf household library and ki
 $('copyRecoveryCodeBtn').onclick=copyRecoveryCode;
 $('downloadRecoveryCodeBtn').onclick=downloadRecoveryCode;
 $('cancelRestoreBtn').onclick=()=>$('restoreBox').classList.remove('show');
-$('restoreBtn').onclick=restoreFromServer;
+$('restoreBtn').onclick=()=>restoreFromServer();
+$('showVersionsBtn').onclick=listBackupVersions;
 
 $('downloadCsvBtn').onclick=()=>downloadCsvBackup('manual');
 $('autoBackupToggle').addEventListener('change',()=>{
@@ -1851,7 +1880,13 @@ $('autoBackupToggle').addEventListener('change',()=>{
 });
 $('exportBtn').onclick=exportBackup;
 $('eraseBtn').onclick=()=>{
-  if(!confirm('Erase the entire local household library and all child profiles from this device? Your online recovery backup will remain available.')) return;
+  const code=getRecoveryCode();
+  if(!confirm(
+    'Erase the entire local household library and all child profiles from THIS DEVICE?\n\n'+
+    'Your online backup can restore it, but only with your recovery code:\n\n'+code+'\n\n'+
+    'Write this code down before continuing. Earlier versions of your backup are kept too, '+
+    'so you can recover the library as it was before this erase.'
+  )) return;
   trackEvent('local_data_erased',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
   clearTimeout(serverSyncTimer);
   localStorage.removeItem(KEY);
