@@ -864,7 +864,7 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-const APP_VERSION='6.2';
+const APP_VERSION='6.3';
 const APP_RELEASE_DATE='September 22, 2026';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
@@ -955,7 +955,15 @@ function freshData(){return{version:3,books:{},kids:[]}}
 function loadData(){
   try{
     const d=JSON.parse(localStorage.getItem(KEY)||'null');
-    if(d&&d.version===3)return d;
+    if(d&&d.version===3){
+      // v6.3: a lookup interrupted by the app closing left the book on 'pending'
+      // forever — the queue only picks up 'queued', so nothing ever retried it.
+      // Proven case: a book stuck on "Looking up…" for five days.
+      for(const b of Object.values(d.books||{})){
+        if(b?.lookupStatus==='pending') b.lookupStatus='queued';
+      }
+      return d;
+    }
   }catch{}
   for(const key of OLD_KEYS){
     try{
