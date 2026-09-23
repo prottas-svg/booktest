@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.6.0";
+const SERVER_VERSION = "6.6.1";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -1006,7 +1006,7 @@ function parseAR(text,isbn,finalUrl) {
   };
 }
 
-async function findISBNInput(page) {
+async function findISBNInputOnce(page) {
   for (const selector of ['input[aria-label*="ISBN" i]','input[placeholder*="ISBN" i]','input[name*="isbn" i]','input[id*="isbn" i]']) {
     const loc=page.locator(selector).first();
     if(await loc.count() && await loc.isVisible().catch(()=>false)) return loc;
@@ -1017,9 +1017,42 @@ async function findISBNInput(page) {
     const all=[...document.querySelectorAll("input[type=text],input:not([type])")];
     return all.find(input=>/isbn/i.test((input.id||"")+" "+(input.name||"")+" "+(input.parentElement?.innerText||"")))||null;
   });
-  const el=handle.asElement();
-  if(!el) throw new Error("Could not locate the ISBN field on AR Bookfinder.");
-  return el;
+  return handle.asElement()||null;
+}
+
+// v6.6.1: the old version looked for the field once, the instant the page was
+// handed over, and threw if it was not there yet — with no record of what the
+// page actually showed. "Could not locate the ISBN field" rose from 1 to 4 in a
+// day, including on a book that had just succeeded. Now: wait, reload once, and
+// report the page we saw so a throttle/block page is distinguishable from a
+// slow render.
+async function findISBNInput(page) {
+  const deadline=Date.now()+8000;
+  while(Date.now()<deadline){
+    const found=await findISBNInputOnce(page);
+    if(found) return found;
+    await page.waitForTimeout(250);
+  }
+  // one clean reload before giving up
+  await page.reload({waitUntil:"domcontentloaded",timeout:15000}).catch(()=>{});
+  const deadline2=Date.now()+6000;
+  while(Date.now()<deadline2){
+    const found=await findISBNInputOnce(page);
+    if(found) return found;
+    await page.waitForTimeout(250);
+  }
+  let seen={};
+  try{
+    seen=await page.evaluate(()=>({
+      url:location.href,
+      title:document.title,
+      inputs:document.querySelectorAll("input").length,
+      preview:(document.body?document.body.innerText:"").replace(/\s+/g," ").slice(0,300)
+    }));
+  }catch{}
+  const e=new Error("Could not locate the ISBN field on AR Bookfinder.");
+  e.pageSeen=seen;
+  throw e;
 }
 
 
@@ -2806,6 +2839,7 @@ app.get("/api/ar/:isbn",async(req,res)=>{
     const fallback={
       isbn,
       browserCrash:isBrowserCrash(e)||undefined,
+      pageSeen:e.pageSeen||undefined,
       title:bib?.title||null,
       author:bib?.author||null,
       cover:bib?.cover||null,
