@@ -27,7 +27,7 @@ const TELEMETRY_FILE = path.join(TELEMETRY_DIR,"events.ndjson");
 const TELEMETRY_ARCHIVE_FILE = path.join(TELEMETRY_DIR,"events-previous.ndjson");
 const REGRESSION_FILE = path.join(TELEMETRY_DIR,"regression-cases.json");
 const SERVER_VERIFY_STATE_FILE = path.join(TELEMETRY_DIR,"server-verification-state.json");
-const SERVER_VERSION = "6.5.4";
+const SERVER_VERSION = "6.6.0";
 const TELEMETRY_ROTATE_BYTES = 25 * 1024 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 12 * 1024;
 
@@ -690,6 +690,39 @@ function requireAdmin(req,res,next){
 // v6.5.2: installs the owner marks as their own, so owner testing does not
 // distort the picture of how real testers are doing.
 const OWNER_INSTALLS_FILE=path.join(TELEMETRY_DIR,"owner-installs.json");
+// v6.6.0: the real state of every library, read from the stored backups rather
+// than from telemetry events. Books scanned before telemetry existed have no
+// events at all, which made per-tester AR counts far too low.
+async function readLibraryCensus(){
+  await ensureBackupDir();
+  const out=[];
+  let entries=[];
+  try{entries=await fs.readdir(BACKUP_DIR,{withFileTypes:true})}catch{return out}
+  for(const entry of entries){
+    if(!entry.isFile()||!entry.name.endsWith(".json"))continue;
+    try{
+      const record=JSON.parse(await fs.readFile(path.join(BACKUP_DIR,entry.name),"utf8"));
+      const books=Object.values(record?.data?.books||{});
+      const counts={ar:0,noAr:0,pending:0,error:0};
+      for(const b of books){
+        const st=b?.lookupStatus;
+        if(st==="found")counts.ar++;
+        else if(st==="no_ar")counts.noAr++;
+        else if(st==="error")counts.error++;
+        else counts.pending++;
+      }
+      out.push({
+        id:entry.name.slice(0,8),
+        savedAt:record?.savedAt||null,
+        books:books.length,
+        kids:Array.isArray(record?.data?.kids)?record.data.kids.length:0,
+        ...counts
+      });
+    }catch{}
+  }
+  return out.sort((a,b)=>b.books-a.books);
+}
+
 async function readOwnerInstalls(){
   try{
     const parsed=JSON.parse(await fs.readFile(OWNER_INSTALLS_FILE,"utf8"));
@@ -2118,7 +2151,7 @@ app.post("/api/telemetry",async(req,res)=>{
 
 app.get("/api/admin/analytics",requireAdmin,async(_req,res)=>{
   const events=await readTelemetryEvents();
-  res.json({ok:true,events,ownerInstalls:await readOwnerInstalls(),serverVerification:{running:serverVerificationRunning,latest:serverVerificationLatest,progress:serverVerificationProgress}});
+  res.json({ok:true,events,ownerInstalls:await readOwnerInstalls(),libraries:await readLibraryCensus(),serverVerification:{running:serverVerificationRunning,latest:serverVerificationLatest,progress:serverVerificationProgress}});
 });
 
 app.post("/api/admin/owner-install",requireAdmin,async(req,res)=>{
@@ -2197,6 +2230,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 <div id="metrics" class="grid"></div>
 <div class="section"><h2>Activation & uptake</h2><div class="card" id="funnel"></div></div>
 <div class="section"><h2>Per-tester experience</h2><div class="card" id="perTester"></div></div>
+<div class="section"><h2>Libraries on the server</h2><div class="card" id="libraries"></div></div>
 <div class="cols">
 <div class="section"><h2>Behavior</h2><div class="card"><div id="behavior"></div></div></div>
 <div class="section"><h2>Reliability</h2><div class="card"><div id="reliability"></div></div></div>
@@ -2221,6 +2255,7 @@ function isServerEvent(e){
  return e?.installId==="server_verification" || e?.platform==="server" || String(e?.eventName||"").startsWith("server_");
 }
 let ownerInstalls=new Set();
+let libraryCensus=[];
 function filtered(){
  const ev=filteredAll().filter(e=>!isServerEvent(e));
  // Owner installs stay visible per tester, but can be kept out of the totals.
@@ -2257,6 +2292,30 @@ function bars(rows){
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 // Per-tester view: one row per install, so a single tester having a bad
 // experience is visible instead of being averaged away.
+// Every backed-up library, with the true state of its books. This is independent
+// of telemetry, so it covers books scanned before events were recorded.
+function renderLibraries(){
+ if(!libraryCensus.length) return '<span class="muted">No backed-up libraries yet.</span>';
+ const totals=libraryCensus.reduce((t,l)=>({books:t.books+l.books,ar:t.ar+l.ar,noAr:t.noAr+l.noAr,pending:t.pending+l.pending,error:t.error+l.error}),{books:0,ar:0,noAr:0,pending:0,error:0});
+ const pct=n=>totals.books?Math.round(n/totals.books*100)+'%':'—';
+ const rows=libraryCensus.map(l=>{
+   const coverage=l.books?Math.round(l.ar/l.books*100)+'%':'—';
+   return '<tr><td class="mono">'+esc(l.id)+'…</td>'+
+     '<td>'+l.books+'</td><td>'+l.kids+'</td>'+
+     '<td><span class="good">'+l.ar+'</span></td><td>'+l.noAr+'</td>'+
+     '<td>'+(l.pending?'<span class="bad">'+l.pending+'</span>':'0')+'</td>'+
+     '<td>'+(l.error?'<span class="bad">'+l.error+'</span>':'0')+'</td>'+
+     '<td>'+coverage+'</td>'+
+     '<td class="muted">'+(l.savedAt?new Date(l.savedAt).toLocaleDateString():'—')+'</td></tr>';
+ }).join('');
+ return '<table><tr><th>Backup</th><th>Books</th><th>Children</th><th>AR found</th><th>No AR</th>'+
+   '<th>Unfinished</th><th>Error</th><th>AR coverage</th><th>Last backed up</th></tr>'+rows+'</table>'+
+   '<div class="muted" style="margin-top:8px;font-size:12px">Read from the stored backups, so this covers every book in every backed-up library, '+
+   'including books scanned before telemetry existed. Across all libraries: '+totals.books+' books, '+
+   totals.ar+' with AR ('+pct(totals.ar)+'), '+totals.noAr+' confirmed no AR, '+totals.pending+' unfinished, '+totals.error+' in error. '+
+   'Backups are identified by an opaque prefix; recovery codes are never shown.</div>';
+}
+
 function renderPerTester(ev){
  const byInstall=new Map();
  for(const e of ev){
@@ -2288,8 +2347,18 @@ function renderPerTester(ev){
      else if(e.eventName==="lookup_no_ar") noAr++;
      else failing++;
    }
+   // Prefer what the device itself reported (client 6.4+): it covers the whole
+   // library, including books looked up before telemetry existed.
+   const reported=opensWithCount.filter(e=>Number.isFinite(e.properties?.arCount)).pop();
+   let fromDevice=false;
+   if(reported){
+     ar=reported.properties.arCount;
+     noAr=reported.properties.noArCount??0;
+     failing=(reported.properties.errorCount??0)+(reported.properties.unfinishedCount??0);
+     fromDevice=true;
+   }
    const booksKnown=new Set([...captured,...latest.keys()]).size;
-   return {id,opens,days,booksKnown,librarySize,libraryKids,attempts:attempts.length,failedAttempts,ar,noAr,failing,
+   return {id,opens,days,booksKnown,librarySize,libraryKids,fromDevice,attempts:attempts.length,failedAttempts,ar,noAr,failing,
            isOwner:ownerInstalls.has(id),
            lastSeen:list.reduce((m,e)=>e.timestamp>m?e.timestamp:m,"")};
  }).sort((a,b)=>b.booksKnown-a.booksKnown || String(b.lastSeen).localeCompare(String(a.lastSeen)));
@@ -2313,6 +2382,7 @@ function renderPerTester(ev){
      ? '<span class="bad">'+r.failedAttempts+'</span>'
      : '<span class="muted">0</span>';
    const stuckCell=r.failing?'<span class="bad">'+r.failing+'</span>':'<span class="good">0</span>';
+   const src=r.fromDevice?'':'<span class="muted" title="Counted from lookup events only — this device has not reported its library state yet"> *</span>';
    return '<tr>'+
      '<td><span class="clickable mono" data-install="'+esc(r.id)+'">'+esc(r.id.slice(0,10))+'…</span>'+
        (r.isOwner?' <span class="owner-badge">you</span>':'')+
@@ -2323,7 +2393,7 @@ function renderPerTester(ev){
        (r.libraryKids?'<span class="muted" style="font-size:11px"> · '+r.libraryKids+' kid'+(r.libraryKids===1?'':'s')+'</span>':'')+'</td>'+
      '<td>'+r.booksKnown+'</td>'+
      '<td>'+r.attempts+'</td><td>'+failCell+'</td>'+
-     '<td><span class="good">'+r.ar+'</span></td><td>'+r.noAr+'</td><td>'+stuckCell+'</td>'+
+     '<td><span class="good">'+r.ar+'</span>'+src+'</td><td>'+r.noAr+'</td><td>'+stuckCell+'</td>'+
      '<td style="min-width:110px">'+stack+'</td>'+
      '<td class="muted">'+(r.lastSeen?new Date(r.lastSeen).toLocaleDateString():"—")+'</td></tr>';
  }).join('');
@@ -2337,7 +2407,9 @@ function renderPerTester(ev){
    '“Stuck now” counts books whose most recent result is still an error — these are the books a parent sees as unresolved today. '+
    '“Library on device” is the book count the app itself reported when it was last opened, so it includes books scanned before telemetry existed. '+
    'The other columns cover the selected time window only. '+
-   'Switch the window to All time for totals per tester. Bar length is relative to the largest count shown; hover a bar for its counts.</div>';
+   'Switch the window to All time for totals per tester. AR/No AR/Stuck describe the whole library as the device last reported it; '+
+   'a * marks a device on an older release, where those three come from lookup events only and understate books looked up before telemetry existed. '+
+   'Bar length is relative to the largest count shown; hover a bar for its counts.</div>';
 }
 
 function render(){
@@ -2407,6 +2479,7 @@ function render(){
  ].join('');
 
  $("perTester").innerHTML=renderPerTester(filteredIncludingOwner());
+ $("libraries").innerHTML=renderLibraries();
  document.querySelectorAll("[data-owner-toggle]").forEach(btn=>{
    btn.onclick=()=>setOwnerInstall(btn.dataset.ownerToggle,btn.dataset.ownerState!=="1");
  });
@@ -2611,6 +2684,7 @@ async function load({manual=false}={}){
    if(!r.ok)throw new Error('Could not load analytics');
    const j=await r.json();raw=j.events||[];
    ownerInstalls=new Set(j.ownerInstalls||[]);
+   libraryCensus=Array.isArray(j.libraries)?j.libraries:[];
    const userEvents=raw.filter(e=>!isServerEvent(e));
    const versions=[...new Set(userEvents.map(e=>e.appVersion).filter(Boolean))].sort().reverse();
    $("version").innerHTML='<option value="">All versions</option>'+versions.map(v=>'<option>'+esc(v)+'</option>').join('');
