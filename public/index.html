@@ -864,7 +864,7 @@ const $=id=>document.getElementById(id);
 const now=()=>new Date().toISOString();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
-const APP_VERSION='6.3';
+const APP_VERSION='6.4';
 const APP_RELEASE_DATE='September 22, 2026';
 const TELEMETRY_INSTALL_KEY='my_ar_shelf_analytics_install_v1';
 const TELEMETRY_SESSION_ID='s_'+uid()+'_'+Math.random().toString(36).slice(2,8);
@@ -1201,6 +1201,18 @@ async function repairMissingBookNames(){
 
 const UNRESOLVED_RECHECK_VERSION='6.2';
 const UNRESOLVED_RECHECK_KEY='scan_ar_unresolved_recheck_version_v1';
+
+function libraryStateForTelemetry(){
+  const books=Object.values(data.books||{});
+  let arCount=0,noArCount=0,errorCount=0,unfinishedCount=0;
+  for(const b of books){
+    if(b?.lookupStatus==='found')arCount++;
+    else if(b?.lookupStatus==='no_ar')noArCount++;
+    else if(b?.lookupStatus==='error')errorCount++;
+    else unfinishedCount++;
+  }
+  return {bookCount:books.length,kidCount:(data.kids||[]).length,arCount,noArCount,errorCount,unfinishedCount};
+}
 
 function queueUnresolvedBooksForReleaseRecheck(){
   try{
@@ -1923,7 +1935,10 @@ $('eraseBtn').onclick=()=>{
 
 queueUnresolvedBooksForReleaseRecheck();
 renderAll();pumpQueue();
-trackEvent('app_open',{bookCount:Object.keys(data.books).length,kidCount:data.kids.length});
+// v6.4: report the state of the library, not just its size. Books scanned before
+// telemetry existed have no lookup events, so event-derived counts understated
+// real AR coverage badly (13 AR books showed as 3).
+trackEvent('app_open',libraryStateForTelemetry());
 trackEvent('page_view',{page:currentPage});
 setTimeout(()=>repairMissingBookNames(),800);
 </script>
